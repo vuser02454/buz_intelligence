@@ -18,6 +18,8 @@ export const Dashboard = () => {
     const [isLoadingReview, setIsLoadingReview] = useState(false);
     const [showReviewModal, setShowReviewModal] = useState(false);
     const [modalTab, setModalTab] = useState('overview');
+    const [weeklyReviewDeep, setWeeklyReviewDeep] = useState(null);
+    const [isLoadingDeepReview, setIsLoadingDeepReview] = useState(false);
     
     // Onboarding calibration states
     const [showOnboarding, setShowOnboarding] = useState(false);
@@ -72,6 +74,32 @@ export const Dashboard = () => {
         });
     };
 
+    const renderMarkdownText = (text, defaultColor = "text-gray-300", highlightColor = "text-[var(--color-levelup-yellow)]") => {
+        if (!text) return null;
+        return text.split('\n').map((line, i) => {
+            if (line.startsWith('###')) {
+                return <h4 key={i} className={`text-sm font-black uppercase tracking-widest ${highlightColor} mt-4 mb-2`}>{line.replace(/###\s*/, '')}</h4>;
+            }
+            if (line.startsWith('- ') || line.startsWith('* ')) {
+                return <p key={i} className={`ml-4 mb-1 flex`}><span className={`${highlightColor} mr-2`}>▶</span> {renderBoldText(line.substring(2), defaultColor, highlightColor)}</p>;
+            }
+            return <p key={i} className="mb-2">{renderBoldText(line, defaultColor, highlightColor)}</p>;
+        });
+    };
+
+    const fetchDeepAnalysis = async () => {
+        setIsLoadingDeepReview(true);
+        try {
+            const res = await api.get('weekly-review/?deep=true');
+            setWeeklyReviewDeep(res.data.review);
+        } catch (err) {
+            console.error("Failed to generate deep review", err);
+            setWeeklyReviewDeep("Coaching System Error: Failed to generate deep analysis.");
+        } finally {
+            setIsLoadingDeepReview(false);
+        }
+    };
+
     // Fetch previous checkins
     const fetchCheckins = async () => {
         try {
@@ -114,6 +142,7 @@ export const Dashboard = () => {
     const handleGenerateWeeklyReview = async () => {
         setIsLoadingReview(true);
         setWeeklyReview(null);
+        setWeeklyReviewDeep(null);
         setShowReviewModal(true);
         setModalTab('overview');
         try {
@@ -303,8 +332,25 @@ export const Dashboard = () => {
                                     <p className="text-[var(--color-levelup-yellow)] font-bold uppercase tracking-widest text-xs">Assembling review logs & generating insights...</p>
                                 </div>
                             ) : modalTab === 'deep' ? (
-                                <div className="space-y-4 font-mono text-gray-350 text-left whitespace-pre-line leading-relaxed pr-2">
-                                    {weeklyReview}
+                                <div className="space-y-4 font-mono text-left pr-2">
+                                    {!weeklyReviewDeep ? (
+                                        <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                                            {isLoadingDeepReview ? (
+                                                <>
+                                                    <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-purple-500"></div>
+                                                    <p className="text-purple-400 font-bold uppercase tracking-widest text-xs">Deep scanning behavioral logs...</p>
+                                                </>
+                                            ) : (
+                                                <Button onClick={fetchDeepAnalysis} variant="primary" className="bg-purple-900/40 hover:bg-purple-900/80 border-purple-600 text-purple-300">
+                                                    Generate Deep Behavioral Analysis
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-line">
+                                            {renderMarkdownText(weeklyReviewDeep, "text-gray-300", "text-purple-400")}
+                                        </div>
+                                    )}
                                 </div>
                             ) : (() => {
                                 const parsed = parseWeeklyReview(weeklyReview);

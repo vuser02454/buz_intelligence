@@ -103,6 +103,23 @@ Provide a blunt verdict: Did they actually execute and build momentum, or did th
 
 ### 7. Core Directives For Next Week
 Provide exactly THREE direct, actionable rules for next week to force execution. No fluff.
+
+CRITICAL CONSTRAINT: Keep EVERY section extremely punchy. Maximum 2 lines of text per section. No rambling.
+"""
+
+GROQ_DEEP_WEEKLY_INSTRUCTION = """
+You are the user's Behavioral Psychologist and Executive Function Coach.
+Your objective is to provide a Deep Behavioral Analysis of the past week.
+Unlike a simple summary, you must look for subtle patterns, root causes of avoidance, psychological barriers (like perfectionism, fear of failure, or task anxiety), and energy management flaws.
+
+TONE:
+- Clinical, deeply analytical, and unflinchingly honest.
+- Do not just say WHAT happened, explain WHY it happened.
+- Provide high-leverage psychological reframes.
+
+STRUCTURE:
+Organize your analysis clearly. You may use markdown headers (e.g., ### Root Cause Analysis, ### Psychological Barriers, ### High Leverage Interventions).
+Be thorough, use bullet points where helpful, and ensure the user gains deep insight into their behavioral patterns.
 """
 
 # ----------------- APIS CONNECTORS -----------------
@@ -231,7 +248,7 @@ Reward after completion: {log_data.get('reward', '')}
     combined_response = f"SCORE: {score}\n{xp_text}\n\n{groq_text}"
     return score, combined_response
 
-def get_weekly_coach_review(logs_list):
+def get_weekly_coach_review(logs_list, is_deep=False):
     """
     Generates a weekly review utilizing the fast Groq completion.
     """
@@ -260,8 +277,10 @@ Here are my check-in logs for the past week:
 Please analyze these logs and generate my Weekly Behavioral Diagnostics Review.
 """
 
+    instruction = GROQ_DEEP_WEEKLY_INSTRUCTION if is_deep else GROQ_WEEKLY_INSTRUCTION
+
     try:
-        review_text = get_groq_completion(GROQ_WEEKLY_INSTRUCTION, prompt)
+        review_text = get_groq_completion(instruction, prompt)
         return review_text
     except Exception as e:
         return f"Coaching System Error (Groq API): {str(e)}"

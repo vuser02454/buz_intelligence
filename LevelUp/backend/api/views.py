@@ -261,6 +261,7 @@ class DailyCheckInViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
             
-        review_text = get_weekly_coach_review(logs_list)
+        is_deep = request.query_params.get('deep') == 'true'
+        review_text = get_weekly_coach_review(logs_list, is_deep=is_deep)
         return Response({'review': review_text})
 
