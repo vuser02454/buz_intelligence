@@ -207,7 +207,21 @@ def enrich_places_with_revenue(places):
         # Run heavy prediction for target places
         p_lat, p_lon = coords
         tags = p.get('tags') or {}
-        b_type = tags.get('amenity') or tags.get('shop') or tags.get('tourism') or 'default'
+        
+        # Align OSM tags with BUSINESS_METRICS in config.py
+        raw_amenity = tags.get('amenity')
+        raw_shop = tags.get('shop')
+        
+        if raw_amenity in ['cafe', 'restaurant', 'fast_food', 'pharmacy']:
+            b_type = raw_amenity
+        elif raw_amenity in ['pub', 'bar', 'food_court', 'biergarten']:
+            b_type = 'restaurant'
+        elif raw_shop == 'supermarket':
+            b_type = 'supermarket'
+        elif raw_shop:
+            b_type = 'shop'
+        else:
+            b_type = 'default'
         
         # Filter elements within 1500m radius of this place to construct its local context
         local_elements = []

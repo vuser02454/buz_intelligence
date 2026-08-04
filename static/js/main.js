@@ -70,8 +70,8 @@ function initHeatmapContainer() {
     const mapEl = document.getElementById('map');
     if (!mapEl || typeof L === 'undefined') return null;
     map = L.map('map').setView([51.505, -0.09], 13);
-    baseTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: 'Â© OpenStreetMap contributors',
+    baseTileLayer = L.tileLayer('https://api.maptiler.com/maps/basic-v2/{z}/{x}/{y}.png?key=SJwCksU5oVIkLOgs9ElB', {
+        attribution: '\u003ca href="https://www.maptiler.com/copyright/" target="_blank"\u003e\u0026copy; MapTiler\u003c/a\u003e \u003ca href="https://www.openstreetmap.org/copyright" target="_blank"\u003e\u0026copy; OpenStreetMap contributors\u003c/a\u003e',
         maxZoom: 19
     }).addTo(map);
     // Recalc size after layout (fixes invisible map)
@@ -3531,13 +3531,11 @@ function toggleTheme() {
 
 function updateMapTiles(theme) {
     if (!isHeatmapPage() || !map || typeof L === 'undefined') return;
-    const lightUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-    const darkUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    const lightUrl = 'https://api.maptiler.com/maps/basic-v2/{z}/{x}/{y}.png?key=SJwCksU5oVIkLOgs9ElB';
+    const darkUrl = 'https://api.maptiler.com/maps/darkmatter/{z}/{x}/{y}.png?key=SJwCksU5oVIkLOgs9ElB';
 
     const nextUrl = theme === 'light' ? lightUrl : darkUrl;
-    const nextAttribution = theme === 'light'
-        ? 'Â© OpenStreetMap contributors'
-        : 'Â© OpenStreetMap contributors Â© CARTO';
+    const nextAttribution = '\u003ca href="https://www.maptiler.com/copyright/" target="_blank"\u003e\u0026copy; MapTiler\u003c/a\u003e \u003ca href="https://www.openstreetmap.org/copyright" target="_blank"\u003e\u0026copy; OpenStreetMap contributors\u003c/a\u003e';
 
     if (baseTileLayer) {
         map.removeLayer(baseTileLayer);
@@ -3950,8 +3948,8 @@ function initDynamicDashboardMap() {
 
     // Initialize Leaflet on the dashboard-specific viewport
     dashboardMap = L.map('dashboard-map').setView([51.505, -0.09], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: 'Â© OpenStreetMap contributors',
+    L.tileLayer('https://api.maptiler.com/maps/basic-v2/{z}/{x}/{y}.png?key=SJwCksU5oVIkLOgs9ElB', {
+        attribution: '\u003ca href="https://www.maptiler.com/copyright/" target="_blank"\u003e\u0026copy; MapTiler\u003c/a\u003e \u003ca href="https://www.openstreetmap.org/copyright" target="_blank"\u003e\u0026copy; OpenStreetMap contributors\u003c/a\u003e',
         maxZoom: 19
     }).addTo(dashboardMap);
 

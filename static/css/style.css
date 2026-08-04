@@ -2534,18 +2534,16 @@ body.chat-open .chat-fab-btn {
         position: fixed;
         inset: 0;
         background: rgba(0, 0, 0, 0.5);
-        z-index: 10;
+        z-index: 1040;
         pointer-events: auto;
     }
 
     .dashboard-sidebar {
         position: fixed;
         left: 0;
-        top: 0;
-        bottom: 0;
         width: 260px;
         min-width: 260px;
-        z-index: 11;
+        z-index: 1050;
         transform: translateX(-100%);
         transition: transform var(--transition-smooth);
         flex-direction: column;
