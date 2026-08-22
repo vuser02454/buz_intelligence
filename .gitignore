@@ -49,3 +49,4 @@ test_fix.html
 api_verify.py
 list_models.py
 test_gemini.py
+.DS_Store

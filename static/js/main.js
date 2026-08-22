@@ -1350,102 +1350,129 @@ async function findPopularPlaces(lat, lon, showAlert = true) {
         }
 
         if (data.success) {
-            // Clear previous popular places markers
-            popularPlacesMarkers.forEach(marker => map.removeLayer(marker));
-            popularPlacesMarkers = [];
+            // Clear previous popular places markers if map is initialized
+            if (typeof map !== 'undefined' && map) {
+                if (Array.isArray(popularPlacesMarkers)) {
+                    popularPlacesMarkers.forEach(marker => {
+                        try { map.removeLayer(marker); } catch (e) {}
+                    });
+                }
+                popularPlacesMarkers = [];
 
-            // Clear previous radius circle if exists
-            if (radiusCircle) {
-                map.removeLayer(radiusCircle);
-                radiusCircle = null;
+                // Clear previous radius circle if exists
+                if (radiusCircle) {
+                    try { map.removeLayer(radiusCircle); } catch (e) {}
+                    radiusCircle = null;
+                }
             }
 
-            // Add markers for popular places (limit to 10)
+            // Add markers for popular places (limit to 15)
             const POPULAR_PLACES_MARKER_LIMIT = 15;
             const placesToShow = (data.results || []).slice(0, POPULAR_PLACES_MARKER_LIMIT);
 
-            placesToShow.forEach(place => {
-                let placeLat, placeLon;
-                if (place.lat && place.lon) {
-                    placeLat = place.lat;
-                    placeLon = place.lon;
-                } else if (place.center) {
-                    placeLat = place.center.lat;
-                    placeLon = place.center.lon;
-                } else {
-                    return;
-                }
+            if (typeof map !== 'undefined' && map && typeof L !== 'undefined') {
+                placesToShow.forEach(place => {
+                    let placeLat, placeLon;
+                    if (place.lat && place.lon) {
+                        placeLat = place.lat;
+                        placeLon = place.lon;
+                    } else if (place.center) {
+                        placeLat = place.center.lat;
+                        placeLon = place.center.lon;
+                    } else {
+                        return;
+                    }
 
-                const name = place.tags?.name || place.tags?.amenity || 'Popular Place';
-                const amenity = place.tags?.amenity || place.tags?.shop || place.tags?.tourism || 'Unknown';
+                    const name = place.tags?.name || place.tags?.amenity || 'Popular Place';
+                    const amenity = place.tags?.amenity || place.tags?.shop || place.tags?.tourism || 'Unknown';
 
-                // --- ADVANCED POPUP CONTENT ---
-                let popupContent = `<div class="popup-card">
-                    <div class="popup-header">
-                        <strong class="popup-title">${name}</strong>
-                        <span class="popup-type">${amenity}</span>
-                    </div>`;
+                    // --- ADVANCED POPUP CONTENT ---
+                    let popupContent = `<div class="popup-card">
+                        <div class="popup-header">
+                            <strong class="popup-title">${name}</strong>
+                            <span class="popup-type">${amenity}</span>
+                        </div>`;
 
-                if (place.revenue_data) {
-                    const r = place.revenue_data;
-                    const healthClass = r.business_health === 'Optimal' ? 'text-success' :
-                        (r.business_health === 'Overloaded' ? 'text-danger' : 'text-warning');
+                    if (place.revenue_data) {
+                        const r = place.revenue_data;
+                        const healthClass = r.business_health === 'Optimal' ? 'text-success' :
+                            (r.business_health === 'Overloaded' ? 'text-danger' : 'text-warning');
 
-                    const monthlyRev = new Intl.NumberFormat('en-IN', {
-                        style: 'currency', currency: 'INR', maximumFractionDigits: 0
-                    }).format(r.estimated_monthly_revenue);
+                        const monthlyRev = new Intl.NumberFormat('en-IN', {
+                            style: 'currency', currency: 'INR', maximumFractionDigits: 0
+                        }).format(r.estimated_monthly_revenue);
 
-                    const dailyRev = new Intl.NumberFormat('en-IN', {
-                        style: 'currency', currency: 'INR', maximumFractionDigits: 0
-                    }).format(r.estimated_daily_revenue);
+                        const dailyRev = new Intl.NumberFormat('en-IN', {
+                            style: 'currency', currency: 'INR', maximumFractionDigits: 0
+                        }).format(r.estimated_daily_revenue);
 
-                    popupContent += `
-                    <div class="popup-stats">
-                        <div class="stat-row main-stat">
-                            <span>Monthly Revenue</span>
-                            <span class="stat-value monitor-glow">${monthlyRev}</span>
-                        </div>
-                        <div class="stat-row">
-                            <span>Daily Avg</span>
-                            <span class="stat-value">${dailyRev}</span>
-                        </div>
-                        <div class="stat-row">
-                            <span>Health</span>
-                            <span class="stat-value ${healthClass}">${r.business_health}</span>
-                        </div>
-                         <div class="stat-row">
-                            <span>Potential Score</span>
-                            <div class="progress-mini">
-                                <div class="progress-bar" style="width: ${r.potential_score}%"></div>
+                        popupContent += `
+                        <div class="popup-stats">
+                            <div class="stat-row main-stat">
+                                <span>Monthly Revenue</span>
+                                <span class="stat-value monitor-glow">${monthlyRev}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span>Daily Avg</span>
+                                <span class="stat-value">${dailyRev}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span>Health</span>
+                                <span class="stat-value ${healthClass}">${r.business_health}</span>
+                            </div>
+                             <div class="stat-row">
+                                <span>Potential Score</span>
+                                <div class="progress-mini">
+                                    <div class="progress-bar" style="width: ${r.potential_score}%"></div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="popup-footer">
-                        <small>CQI: ${r.cqi_label} | Risk: ${r.overload_risk}%</small>
-                    </div></div>`;
-                } else {
-                    popupContent += `</div>`;
-                }
+                        <div class="popup-footer">
+                            <small>CQI: ${r.cqi_label || 'Standard'} | Risk: ${r.overload_risk || 0}%</small>
+                        </div></div>`;
+                    } else {
+                        popupContent += `</div>`;
+                    }
 
-                const marker = L.marker([placeLat, placeLon], {
-                    icon: L.icon({
-                        iconUrl: 'https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-blue.png',
-                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-                        iconSize: [25, 41],
-                        iconAnchor: [12, 41],
-                        popupAnchor: [1, -34],
-                        shadowSize: [41, 41]
-                    })
-                }).addTo(map)
-                    .bindPopup(popupContent, { minWidth: 260, className: 'premium-popup' });
+                    try {
+                        const marker = L.marker([placeLat, placeLon], {
+                            icon: L.icon({
+                                iconUrl: 'https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-blue.png',
+                                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41],
+                                popupAnchor: [1, -34],
+                                shadowSize: [41, 41]
+                            })
+                        }).addTo(map)
+                            .bindPopup(popupContent, { minWidth: 260, className: 'premium-popup' });
 
-                marker.on('click', () => {
-                    saveSelectedLocation(placeLat, placeLon, name, amenity || '');
-                    redirectToDashboardAIIfNeeded();
+                        marker.on('click', () => {
+                            if (typeof saveSelectedLocation === 'function') {
+                                saveSelectedLocation(placeLat, placeLon, name, amenity || '');
+                            }
+                            if (typeof redirectToDashboardAIIfNeeded === 'function') {
+                                redirectToDashboardAIIfNeeded();
+                            }
+                        });
+
+                        popularPlacesMarkers.push(marker);
+                    } catch (e) {
+                        console.warn('Marker create error:', e);
+                    }
                 });
 
-                popularPlacesMarkers.push(marker);
-            });
+                if (radiusCircle) {
+                    try { map.removeLayer(radiusCircle); } catch (e) {}
+                }
+                try {
+                    radiusCircle = L.circle([lat, lon], {
+                        radius: 2000, color: '#2e7d32', fillColor: '#388e3c', fillOpacity: 0.12, weight: 2, dashArray: '10, 10'
+                    }).addTo(map);
+                } catch (e) {
+                    console.warn('Radius circle error:', e);
+                }
+            }
 
             // Update Total Area Revenue in Footer with Animation
             if (data.total_area_revenue) {
@@ -1455,30 +1482,33 @@ async function findPopularPlaces(lat, lon, showAlert = true) {
 
                 if (revenueDisplay && revenueVal) {
                     revenueDisplay.classList.remove('d-none');
-                    // Animate from 0 to total
-                    animateValue(revenueVal, 0, data.total_area_revenue, 1500);
+                    if (typeof animateValue === 'function') {
+                        animateValue(revenueVal, 0, data.total_area_revenue, 1500);
+                    } else {
+                        revenueVal.textContent = '₹' + data.total_area_revenue;
+                    }
 
                     const revLabel = revenueDisplay.querySelector('.revenue-label');
                     if (revLabel) revLabel.textContent = 'Total Area Potential';
-                    revLabel.classList.add('pulse-text'); // Pulse effect
+                    if (revLabel) revLabel.classList.add('pulse-text');
 
                     if (scoreVal) scoreVal.textContent = data.results.length + ' Monitor Points';
-                    const scoreLabel = scoreVal.parentElement.querySelector('.revenue-label');
+                    const scoreLabel = scoreVal.parentElement?.querySelector('.revenue-label');
                     if (scoreLabel) scoreLabel.textContent = 'Active Sensors';
                 }
             }
 
             lastPopularPlacesResult = { places: data.results || [], lat, lon };
-            // renderPopularPlacesTable(data.results || [], lat, lon); // Deprecated
-            renderPopularPlacesFlashcards(data.results || []);
-            renderBusinessRecommendationCards(data.results || [], lat, lon);
+            if (typeof renderPopularPlacesFlashcards === 'function') {
+                renderPopularPlacesFlashcards(data.results || []);
+            }
+            if (typeof renderBusinessRecommendationCards === 'function') {
+                renderBusinessRecommendationCards(data.results || [], lat, lon);
+            }
 
-            if (radiusCircle) map.removeLayer(radiusCircle);
-            radiusCircle = L.circle([lat, lon], {
-                radius: 2000, color: '#2e7d32', fillColor: '#388e3c', fillOpacity: 0.12, weight: 2, dashArray: '10, 10'
-            }).addTo(map);
-
-            await updateCrowdIntensityDropdown(lat, lon);
+            if (typeof updateCrowdIntensityDropdown === 'function') {
+                await updateCrowdIntensityDropdown(lat, lon);
+            }
 
             if (showAlert) {
                 showHeatmapToast(`AI Scan Complete: ${data.results.length} monitored zones active.`, 'success');
@@ -1957,14 +1987,13 @@ function connectChatbot() {
         console.log('Chatbot: Message received', e.data);
         const data = JSON.parse(e.data);
         const message = data.message;
+        const actions = data.structured_actions;
 
-        addChatMessage(message, 'bot');
+        addChatMessage(message, 'bot', actions);
 
         // Allow the bot to control the map by parsing its response for commands
-        // This makes the assistant "interactive" as requested.
         const result = handleChatCommand(message);
         if (result.handled && result.feedback) {
-            // Optional: notify user that a map action was triggered by the bot
             console.log('Bot-triggered map action:', result.feedback);
         }
     };
@@ -1979,19 +2008,98 @@ function connectChatbot() {
     };
 }
 
-// Add message to chatbot
-function addChatMessage(message, sender) {
+// Add message to chatbot with markdown formatting and structured interactive buttons
+function addChatMessage(message, sender, actions) {
     const messagesContainer = document.getElementById('chatbot-messages');
     if (!messagesContainer) return;
     const messageDiv = document.createElement('div');
     messageDiv.className = 'chatbot-message ' + sender;
-    messageDiv.textContent = message;
+    
+    if (sender === 'bot') {
+        // Format basic markdown safely
+        let formatted = (message || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/•\s+(.*?)(?=\n|$)/g, '• $1')
+            .replace(/━━━━━━━━━━━━━━━━━━━━━━━━━━━━/g, '<hr style="border:0;border-top:1px solid rgba(255,255,255,0.15);margin:8px 0;">')
+            .replace(/\n/g, '<br>');
+        
+        messageDiv.innerHTML = formatted;
+
+        // If structured actions are provided, render interactive action buttons
+        if (actions && Array.isArray(actions) && actions.length > 0) {
+            const actionsContainer = document.createElement('div');
+            actionsContainer.className = 'chat-actions-container';
+            
+            actions.forEach(act => {
+                if (!act || !act.intent) return;
+                const btn = document.createElement('button');
+                btn.className = 'chat-action-btn';
+                btn.textContent = act.label || act.intent.replace(/_/g, ' ');
+                btn.type = 'button';
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    handleStructuredChatAction(act);
+                });
+                actionsContainer.appendChild(btn);
+            });
+            
+            messageDiv.appendChild(actionsContainer);
+        }
+    } else {
+        messageDiv.textContent = message;
+    }
+    
     messagesContainer.appendChild(messageDiv);
 
     // Auto-scroll to bottom
     setTimeout(() => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }, 50);
+}
+
+// Handle structured AI actions securely
+function handleStructuredChatAction(action) {
+    if (!action || !action.intent) return;
+    console.log('Executing structured AI action:', action);
+    
+    const intent = action.intent;
+    const locName = action.location || '';
+    const bType = action.business_type || '';
+
+    if (intent === 'check_feasibility') {
+        if (typeof runFeasibilityFlow === 'function') {
+            runFeasibilityFlow(bType || 'cafe', locName);
+        } else {
+            notifyChatFromMap(`Checking feasibility for ${bType} in ${locName}...`);
+        }
+    } else if (intent === 'find_alternative_locations') {
+        if (typeof generateBestLocations === 'function') {
+            generateBestLocations();
+        } else {
+            redirectToDashboardAIIfNeeded();
+        }
+    } else if (intent === 'view_heatmap') {
+        if (typeof analyzeCrowdIntensity === 'function') {
+            analyzeCrowdIntensity();
+        } else {
+            window.location.href = '/';
+        }
+    } else if (intent === 'compare_locations') {
+        redirectToDashboardAIIfNeeded();
+    } else if (intent === 'open_dashboard') {
+        window.location.href = '/dashboard/?ai=true';
+    } else if (intent === 'open_form') {
+        const formModal = document.getElementById('form-modal');
+        if (formModal) formModal.style.display = 'block';
+    } else if (intent === 'find_popular_places') {
+        if (typeof findPopularPlaces === 'function') {
+            findPopularPlaces();
+        }
+    }
 }
 
 function showTypingIndicator() {
@@ -2057,18 +2165,31 @@ safeOn('chatbot-input', 'keypress', function (e) {
 
 // Place a single brown business marker at (lat, lon) for feasible location
 function placeFeasibilityMarker(lat, lon, label) {
-    businessRecommendationMarkers.forEach(m => map.removeLayer(m));
-    businessRecommendationMarkers = [];
+    if (typeof map === 'undefined' || !map) return;
+    if (Array.isArray(businessRecommendationMarkers)) {
+        businessRecommendationMarkers.forEach(m => {
+            try { map.removeLayer(m); } catch (e) {}
+        });
+        businessRecommendationMarkers = [];
+    }
     const color = '#8B4513';
-    const marker = L.circleMarker([lat, lon], {
-        radius: 14,
-        color,
-        fillColor: color,
-        fillOpacity: 0.9,
-        weight: 3
-    }).addTo(map)
-        .bindPopup(`<b>Business location (feasible)</b><br>${label || 'Recommended spot'}`);
-    businessRecommendationMarkers.push(marker);
+    if (typeof L !== 'undefined' && L.circleMarker) {
+        try {
+            const marker = L.circleMarker([lat, lon], {
+                radius: 14,
+                color,
+                fillColor: color,
+                fillOpacity: 0.9,
+                weight: 3
+            }).addTo(map)
+                .bindPopup(`<b>Business location (feasible)</b><br>${label || 'Recommended spot'}`);
+            if (Array.isArray(businessRecommendationMarkers)) {
+                businessRecommendationMarkers.push(marker);
+            }
+        } catch (e) {
+            console.warn('Could not place feasibility marker:', e);
+        }
+    }
 }
 
 // Framework: user command like "open cafe in Koramangala" -> 4.1 point location, 4.2 popular places 2km, 4.3 feasibility, 4.4 brown marker or not feasible
@@ -2124,18 +2245,36 @@ async function runFeasibilityFlow(placeText, businessType) {
         }
 
         notifyChatFromMap(`Pointing to ${locationLabel} and checking feasibility for "${businessType || 'business'}".`);
-        // 4.1 Point to the location
-        map.setView([lat, lon], 15);
-        if (userMarker) map.removeLayer(userMarker);
-        userMarker = L.marker([lat, lon]).addTo(map)
-            .bindPopup(locationLabel).openPopup();
-        document.getElementById('id_latitude').value = lat;
-        document.getElementById('id_longitude').value = lon;
-        updateAccuracyMeter(85);
-        showLocationError('');
+        // 4.1 Point to the location if map is loaded on current page
+        if (typeof map !== 'undefined' && map) {
+            try {
+                map.setView([lat, lon], 15);
+                if (userMarker) {
+                    try { map.removeLayer(userMarker); } catch (e) {}
+                }
+                if (typeof L !== 'undefined' && L.marker) {
+                    userMarker = L.marker([lat, lon]).addTo(map)
+                        .bindPopup(locationLabel).openPopup();
+                }
+            } catch (e) {
+                console.warn('Map view error:', e);
+            }
+        }
+        const latInput = document.getElementById('id_latitude');
+        const lonInput = document.getElementById('id_longitude');
+        if (latInput) latInput.value = lat;
+        if (lonInput) lonInput.value = lon;
+        if (typeof updateAccuracyMeter === 'function') updateAccuracyMeter(85);
+        if (typeof showLocationError === 'function') showLocationError('');
+        if (typeof saveSelectedLocation === 'function') {
+            saveSelectedLocation(lat, lon, locationLabel, businessType || '');
+        }
+
         // 4.2 Take popular places radius in 2km
         await findPopularPlaces(lat, lon, false);
-        await updateCrowdIntensityDropdown(lat, lon);
+        if (typeof updateCrowdIntensityDropdown === 'function') {
+            await updateCrowdIntensityDropdown(lat, lon);
+        }
         // 4.3 & 4.4 Check feasibility and place brown marker or show not feasible
         const feasData = await getFeasibilityWithCache(lat, lon, businessType || '');
         if (feasData.success) {
@@ -2364,8 +2503,18 @@ function sendChatMessage() {
 
     showTypingIndicator();
 
+    const selectedLoc = typeof getSelectedLocation === 'function' ? getSelectedLocation() : null;
+    const chatPayload = {
+        message: message,
+        location: selectedLoc ? {
+            lat: selectedLoc.lat,
+            lon: selectedLoc.lng || selectedLoc.lon,
+            name: selectedLoc.name || selectedLoc.label || ''
+        } : null
+    };
+
     if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-        chatSocket.send(JSON.stringify({ message: message }));
+        chatSocket.send(JSON.stringify(chatPayload));
         return;
     }
 
@@ -2376,13 +2525,13 @@ function sendChatMessage() {
             'Content-Type': 'application/json',
             'X-CSRFToken': getCookie('csrftoken')
         },
-        body: JSON.stringify({ message: message })
+        body: JSON.stringify(chatPayload)
     })
         .then(function (res) { return res.json(); })
         .then(function (data) {
             hideTypingIndicator();
             if (data.success && data.message) {
-                addChatMessage(data.message, 'bot');
+                addChatMessage(data.message, 'bot', data.structured_actions);
             } else {
                 addChatMessage('Sorry, I could not respond right now. Please try again.', 'bot');
             }

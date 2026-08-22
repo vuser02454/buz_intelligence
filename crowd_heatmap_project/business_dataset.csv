@@ -1,3 +1,73 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:61c8e71c1817e51628cf8ee0f96d2f9d8548f637690bc4980f17dbdc9ca7af95
-size 2044
+crowd,shops,area,business
+high,high,commercial,Cafe
+high,high,commercial,Restaurant
+high,high,commercial,Fast Food
+high,high,commercial,Clothing Store
+high,high,commercial,Electronics Store
+high,high,commercial,Mobile Shop
+high,high,commercial,Jewellery Store
+high,high,commercial,Footwear Store
+high,high,commercial,Cosmetics Store
+high,high,commercial,ATM
+high,high,market,Street Food Stall
+high,high,market,Juice Bar
+high,high,market,Sweet Shop
+high,high,market,Bakery
+high,high,market,Flower Shop
+high,high,market,Fruit Shop
+high,high,market,Vegetable Shop
+high,high,market,Wholesale Store
+high,medium,mall,Cinema
+high,medium,mall,Food Court
+high,medium,mall,Clothing Boutique
+high,medium,mall,Ice Cream Parlour
+high,medium,mall,Coffee Shop
+high,medium,mall,Sports Store
+high,medium,college,Book Store
+high,medium,college,Stationery Shop
+high,medium,college,Photocopy Shop
+high,medium,college,Printing Shop
+high,medium,college,Internet Cafe
+high,medium,college,Tiffin Service
+high,medium,college,Coaching Centre
+high,medium,college,Tuition Centre
+high,medium,office,Cafe
+high,medium,office,Food Court
+high,medium,office,Courier Service
+high,medium,office,Travel Agency
+high,medium,office,ATM
+medium,medium,residential,Grocery Store
+medium,medium,residential,Supermarket
+medium,medium,residential,Pharmacy
+medium,medium,residential,Medical Store
+medium,medium,residential,Salon
+medium,medium,residential,Gym
+medium,medium,residential,Laundry Service
+medium,medium,residential,Tailoring Shop
+medium,medium,residential,Milk Booth
+medium,medium,residential,Bakery
+medium,medium,residential,Pet Shop
+medium,medium,commercial,Optical Store
+medium,medium,commercial,Hardware Store
+medium,medium,city_center,Mobile Shop
+medium,medium,city_center,Clothing Store
+medium,medium,city_center,Restaurant
+medium,low,residential,Vegetable Shop
+medium,low,residential,Fruit Shop
+medium,low,residential,Cycle Repair
+medium,low,residential,Plumbing Supply
+low,low,outskirts,Warehouse
+low,low,outskirts,Storage Facility
+low,low,outskirts,Cold Storage
+low,low,outskirts,Fuel Station
+low,low,outskirts,Auto Repair Shop
+low,low,industrial,Logistics Hub
+low,low,industrial,Fabrication Shop
+low,low,industrial,Timber Yard
+low,low,industrial,Scrap Dealer
+low,low,industrial,Spare Parts Shop
+low,low,village,Dairy Farm
+low,low,village,Poultry Farm
+low,low,village,Cycle Repair
+low,low,storage,Warehouse
+low,low,storage,Cold Storage

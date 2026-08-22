@@ -67,7 +67,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'channels',
     'users',
-    'heatmap_app',
+    'tracker',
+    'business_intelligence',
 ]
 
 MIDDLEWARE = [
