@@ -34,7 +34,6 @@ media/
 
 # Secrets
 .env
-.env.example
 
 # IDEs
 .vscode/

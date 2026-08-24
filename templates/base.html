@@ -47,6 +47,11 @@
                         <ul class="dropdown-menu dropdown-menu-end dropdown-menu-base">
                             <li><span class="dropdown-item-text text-info small">{{ user.email }}</span></li>
                             <li>
+                                <a class="dropdown-item" href="{% url 'security_center' %}">
+                                    <i class="fas fa-shield-halved me-2"></i>Security & Account
+                                </a>
+                            </li>
+                            <li>
                                 <hr class="dropdown-divider">
                             </li>
                             <li>

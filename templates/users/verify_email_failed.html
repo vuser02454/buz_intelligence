@@ -1,22 +1,22 @@
 {% extends "users/base_auth.html" %}
 {% load static %}
 
-{% block title %}Password Reset Sent - Crowd Heatmap{% endblock %}
+{% block title %}Verification Failed - Crowd Heatmap{% endblock %}
 
 {% block auth_content %}
 <style>
-    .icon-badge-success {
+    .icon-badge-danger {
         width: 72px;
         height: 72px;
-        background: rgba(102, 252, 241, 0.1);
-        border: 1px solid rgba(102, 252, 241, 0.3);
+        background: rgba(220, 53, 69, 0.12);
+        border: 1px solid rgba(220, 53, 69, 0.3);
         border-radius: 50%;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        color: var(--accent);
+        color: #ff8e99;
         margin-bottom: 1.5rem;
-        box-shadow: 0 0 25px rgba(102, 252, 241, 0.2);
+        box-shadow: 0 0 25px rgba(220, 53, 69, 0.2);
     }
 
     .btn-login {
@@ -38,23 +38,26 @@
 
 <div class="card border-0">
     <div class="card-body p-4 p-md-5 text-center">
-        <div class="icon-badge-success">
+        <div class="icon-badge-danger">
             <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" fill="currentColor" viewBox="0 0 16 16">
                 <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
-                <path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/>
+                <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
             </svg>
         </div>
 
-        <h2 class="mb-2 fw-bold">Check Your Email</h2>
+        <h2 class="mb-2 fw-bold">Link Expired or Invalid</h2>
         <p class="text-muted mb-4 fs-6">
-            If an account exists with the email you entered, we've sent instructions to reset your password.
-        </p>
-        <p class="text-muted small mb-4">
-            Please check your spam or junk folder if you don't see the email within a few minutes.
+            The verification link you followed is invalid, has already been used, or has expired.
         </p>
 
         <div class="d-grid gap-2 mb-3">
-            <a href="{% url 'login' %}" class="btn btn-login btn-lg shadow-sm">
+            <a href="{% url 'resend_verification' %}" class="btn btn-login btn-lg shadow-sm">
+                Request a New Link
+            </a>
+        </div>
+
+        <div class="text-center mt-3">
+            <a href="{% url 'login' %}" class="text-muted small">
                 Back to Log In
             </a>
         </div>

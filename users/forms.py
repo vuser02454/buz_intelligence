@@ -1,186 +1,381 @@
 """
-Custom forms for user registration and login.
+Authentication, Registration, 2FA, and Account Recovery Forms.
 """
-import re
-
 from django import forms
 from django.contrib.auth import authenticate
 from django.contrib.auth.forms import (
-    AuthenticationForm,
-    UserCreationForm as BaseUserCreationForm,
+    PasswordResetForm,
+    SetPasswordForm,
 )
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-
 from .models import CustomUser, UserType
 
 
-class LoginForm(AuthenticationForm):
-    """
-    Custom login form using email (not username) for authentication.
-    Includes optional 'Remember me' checkbox.
-    """
-
-    username = forms.EmailField(
-        label='Email',
+class LoginForm(forms.Form):
+    """Clean login form with email normalization and verification check."""
+    email = forms.EmailField(
+        label='Email Address',
         widget=forms.EmailInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'Enter your email',
+            'class': 'form-control form-control-custom',
+            'placeholder': 'name@example.com',
             'autocomplete': 'email',
+            'id': 'id_email',
         }),
     )
     password = forms.CharField(
         label='Password',
         widget=forms.PasswordInput(attrs={
-            'class': 'form-control',
+            'class': 'form-control form-control-custom',
             'placeholder': 'Enter your password',
             'autocomplete': 'current-password',
+            'id': 'id_password',
         }),
     )
     remember_me = forms.BooleanField(
         required=False,
-        initial=False,
-        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         label='Remember me',
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
     )
+
+    def clean_email(self):
+        return self.cleaned_data.get('email', '').strip().lower()
 
     def clean(self):
-        """Authenticate using email and password."""
-        email = self.cleaned_data.get('username')  # Django uses 'username' for lookup
-        password = self.cleaned_data.get('password')
+        cleaned_data = super().clean()
+        email = cleaned_data.get('email')
+        password = cleaned_data.get('password')
 
         if email and password:
-            email = email.lower().strip()
-            self.user_cache = authenticate(
-                self.request,
-                username=email,
-                password=password,
-            )
-            if self.user_cache is None:
+            self.user = authenticate(username=email, password=password)
+            if self.user is None:
                 raise ValidationError(
-                    'Invalid email or password. Please try again.',
+                    'Invalid email or password. Please check your credentials and try again.',
                     code='invalid_login',
                 )
-            elif not self.user_cache.is_active:
+            if not self.user.is_active:
                 raise ValidationError(
-                    'This account has been disabled.',
+                    'This account is currently inactive. Please contact support.',
                     code='inactive',
                 )
-        return self.cleaned_data
+            if not getattr(self.user, 'email_verified', False):
+                self.unverified_email = email
+                raise ValidationError(
+                    'Your email address has not been verified yet. Please check your inbox or request a new verification email.',
+                    code='unverified',
+                )
+        return cleaned_data
+
+    def get_user(self):
+        return getattr(self, 'user', None)
 
 
-class UserCreationForm(BaseUserCreationForm):
-    """Custom registration form with email as username and additional fields."""
-
-    full_name = forms.CharField(
-        max_length=150,
-        required=True,
-        widget=forms.TextInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'Enter your full name',
-            'autocomplete': 'name',
-        }),
-        label='Full Name',
-    )
-    email = forms.EmailField(
-        required=True,
-        widget=forms.EmailInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'Enter your email',
-            'autocomplete': 'email',
-        }),
-        label='Email',
-    )
-    phone_number = forms.CharField(
-        max_length=20,
-        required=True,
-        widget=forms.TextInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'Enter your phone number',
-            'autocomplete': 'tel',
-        }),
-        label='Phone Number',
-    )
-    user_type = forms.ChoiceField(
-        choices=[('', 'Select account type')] + list(UserType.choices),
-        required=True,
-        widget=forms.Select(attrs={
-            'class': 'form-select',
-        }),
-        label='Account Type',
-    )
-    password1 = forms.CharField(
+class UserCreationForm(forms.ModelForm):
+    """Secure registration form with optional recovery email."""
+    password = forms.CharField(
         label='Password',
         widget=forms.PasswordInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'Create a password',
+            'class': 'form-control form-control-custom',
+            'placeholder': 'Create a strong password',
             'autocomplete': 'new-password',
+            'id': 'id_password',
         }),
     )
-    password2 = forms.CharField(
+    confirm_password = forms.CharField(
         label='Confirm Password',
         widget=forms.PasswordInput(attrs={
-            'class': 'form-control',
+            'class': 'form-control form-control-custom',
             'placeholder': 'Confirm your password',
             'autocomplete': 'new-password',
+            'id': 'id_confirm_password',
         }),
     )
 
     class Meta:
         model = CustomUser
-        fields = ('full_name', 'email', 'phone_number', 'user_type')
+        fields = ['full_name', 'email', 'recovery_email', 'phone_number', 'user_type']
+        widgets = {
+            'full_name': forms.TextInput(attrs={
+                'class': 'form-control form-control-custom',
+                'placeholder': 'Full Name',
+                'id': 'id_full_name',
+            }),
+            'email': forms.EmailInput(attrs={
+                'class': 'form-control form-control-custom',
+                'placeholder': 'name@example.com',
+                'id': 'id_email',
+            }),
+            'recovery_email': forms.EmailInput(attrs={
+                'class': 'form-control form-control-custom',
+                'placeholder': 'recovery@example.com (Optional)',
+                'id': 'id_recovery_email',
+            }),
+            'phone_number': forms.TextInput(attrs={
+                'class': 'form-control form-control-custom',
+                'placeholder': '+1 (555) 000-0000',
+                'id': 'id_phone_number',
+            }),
+            'user_type': forms.Select(attrs={
+                'class': 'form-select form-select-custom',
+                'id': 'id_user_type',
+            }),
+        }
 
     def clean_email(self):
-        """Prevent duplicate email registration."""
-        email = self.cleaned_data.get('email')
-        if email:
-            email = email.lower().strip()
-            if CustomUser.objects.filter(email__iexact=email).exists():
-                raise ValidationError(
-                    'An account with this email address already exists.',
-                    code='duplicate_email',
-                )
-        return email
+        return self.cleaned_data.get('email', '').strip().lower()
 
-    def clean_full_name(self):
-        """Validate full name - non-empty, reasonable length."""
-        full_name = self.cleaned_data.get('full_name', '').strip()
-        if len(full_name) < 2:
-            raise ValidationError('Full name must be at least 2 characters.')
-        if len(full_name) > 150:
-            raise ValidationError('Full name must not exceed 150 characters.')
-        return full_name
-
-    def clean_phone_number(self):
-        """Basic phone number validation - allow digits, spaces, +, -, parentheses."""
-        phone = self.cleaned_data.get('phone_number', '').strip()
-        if not phone:
-            raise ValidationError('Phone number is required.')
-        # Allow common formats: +1 234 567 8900, (123) 456-7890, 123-456-7890
-        if not re.match(r'^[\d\s+\-()]{7,20}$', phone):
-            raise ValidationError('Enter a valid phone number.')
-        if len(re.sub(r'\D', '', phone)) < 7:
-            raise ValidationError('Phone number must contain at least 7 digits.')
-        return phone
+    def clean_recovery_email(self):
+        rec = self.cleaned_data.get('recovery_email', '')
+        return rec.strip().lower() if rec else None
 
     def clean(self):
-        """Validate password match."""
         cleaned_data = super().clean()
-        password1 = cleaned_data.get('password1')
-        password2 = cleaned_data.get('password2')
+        password = cleaned_data.get('password')
+        confirm_password = cleaned_data.get('confirm_password')
 
-        if password1 and password2 and password1 != password2:
-            self.add_error('password2', 'The two password fields did not match.')
+        if password and confirm_password:
+            if password != confirm_password:
+                self.add_error('confirm_password', 'Passwords do not match.')
+            else:
+                validate_password(password)
+
+        email = cleaned_data.get('email')
+        recovery_email = cleaned_data.get('recovery_email')
+        if email and recovery_email and email == recovery_email:
+            self.add_error('recovery_email', 'Recovery email cannot be identical to primary email.')
 
         return cleaned_data
 
     def save(self, commit=True):
-        """Save user with normalized email and hashed password."""
         user = super().save(commit=False)
-        user.email = self.cleaned_data['email'].lower()
-        user.full_name = self.cleaned_data['full_name']
-        user.phone_number = self.cleaned_data['phone_number']
-        user.user_type = self.cleaned_data['user_type']
-        user.set_password(self.cleaned_data['password1'])  # Django hashes automatically
+        user.set_password(self.cleaned_data['password'])
+        user.email_verified = False
+        user.two_factor_enabled = False
         if commit:
             user.save()
         return user
+
+
+class ResendVerificationForm(forms.Form):
+    """Resend email verification request form."""
+    email = forms.EmailField(
+        label='Email Address',
+        widget=forms.EmailInput(attrs={
+            'class': 'form-control form-control-custom',
+            'placeholder': 'name@example.com',
+            'autocomplete': 'email',
+            'id': 'id_resend_email',
+        }),
+    )
+
+    def clean_email(self):
+        return self.cleaned_data.get('email', '').strip().lower()
+
+
+class ForgotEmailForm(forms.Form):
+    """Account recovery lookup form via recovery email or phone number."""
+    identifier = forms.CharField(
+        label='Recovery Email or Registered Phone Number',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control form-control-custom',
+            'placeholder': 'Enter your recovery email or phone number',
+            'id': 'id_identifier',
+        }),
+    )
+
+    def clean_identifier(self):
+        return self.cleaned_data.get('identifier', '').strip()
+
+
+class CustomPasswordResetForm(PasswordResetForm):
+    """Custom styled password reset request form."""
+    email = forms.EmailField(
+        label='Email Address',
+        widget=forms.EmailInput(attrs={
+            'class': 'form-control form-control-custom',
+            'placeholder': 'name@example.com',
+            'autocomplete': 'email',
+            'id': 'id_reset_email',
+        }),
+    )
+
+    def clean_email(self):
+        return self.cleaned_data.get('email', '').strip().lower()
+
+
+class CustomSetPasswordForm(SetPasswordForm):
+    """Custom styled set new password form."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs.update({
+                'class': 'form-control form-control-custom',
+            })
+
+
+class ChangePasswordDashboardForm(forms.Form):
+    """Form to change password from dashboard, requiring current password."""
+    current_password = forms.CharField(
+        label='Current Password',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control form-control-custom',
+            'placeholder': 'Enter current password',
+            'autocomplete': 'current-password',
+            'id': 'id_current_password',
+        }),
+    )
+    new_password1 = forms.CharField(
+        label='New Password',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control form-control-custom',
+            'placeholder': 'Enter new password',
+            'autocomplete': 'new-password',
+            'id': 'id_new_password1',
+        }),
+    )
+    new_password2 = forms.CharField(
+        label='Confirm New Password',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control form-control-custom',
+            'placeholder': 'Confirm new password',
+            'autocomplete': 'new-password',
+            'id': 'id_new_password2',
+        }),
+    )
+
+    def __init__(self, user, *args, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)
+
+    def clean_current_password(self):
+        current_password = self.cleaned_data.get('current_password')
+        if not self.user.check_password(current_password):
+            raise ValidationError('Your current password was entered incorrectly.')
+        return current_password
+
+    def clean(self):
+        cleaned_data = super().clean()
+        new_password1 = cleaned_data.get('new_password1')
+        new_password2 = cleaned_data.get('new_password2')
+
+        if new_password1 and new_password2:
+            if new_password1 != new_password2:
+                self.add_error('new_password2', 'New passwords do not match.')
+            else:
+                validate_password(new_password1, user=self.user)
+        return cleaned_data
+
+
+class TwoFactorVerifyForm(forms.Form):
+    """Form to submit 6-digit TOTP code during login or verification."""
+    code = forms.CharField(
+        label='6-Digit Authenticator Code',
+        max_length=6,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control form-control-custom text-center',
+            'placeholder': '123456',
+            'autocomplete': 'one-time-code',
+            'inputmode': 'numeric',
+            'pattern': '[0-9]*',
+            'maxlength': '6',
+            'id': 'id_totp_code',
+            'style': 'letter-spacing: 6px; font-size: 24px; font-weight: bold;',
+        }),
+    )
+
+    def clean_code(self):
+        code = self.cleaned_data.get('code', '').strip()
+        clean = ''.join(c for c in code if c.isdigit())
+        if len(clean) != 6:
+            raise ValidationError('Please enter a valid 6-digit numeric code.')
+        return clean
+
+
+class TwoFactorRecoveryCodeForm(forms.Form):
+    """Form to submit backup recovery code when authenticator is lost."""
+    recovery_code = forms.CharField(
+        label='Backup Recovery Code',
+        max_length=20,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control form-control-custom text-center',
+            'placeholder': 'XXXX-XXXX',
+            'autocomplete': 'off',
+            'id': 'id_recovery_code',
+            'style': 'letter-spacing: 3px; font-size: 20px; text-transform: uppercase;',
+        }),
+    )
+
+    def clean_recovery_code(self):
+        code = self.cleaned_data.get('recovery_code', '').strip().upper()
+        clean = ''.join(c for c in code if c.isalnum())
+        if len(clean) < 6:
+            raise ValidationError('Please enter a valid recovery code.')
+        return clean
+
+
+class TwoFactorDisableForm(forms.Form):
+    """Form to disable 2FA, requiring current password and current TOTP code."""
+    current_password = forms.CharField(
+        label='Current Password',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control form-control-custom',
+            'placeholder': 'Enter your current password',
+            'id': 'id_disable_password',
+        }),
+    )
+    code = forms.CharField(
+        label='Current 6-Digit Authenticator Code',
+        max_length=6,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control form-control-custom text-center',
+            'placeholder': '123456',
+            'autocomplete': 'one-time-code',
+            'inputmode': 'numeric',
+            'pattern': '[0-9]*',
+            'maxlength': '6',
+            'id': 'id_disable_code',
+            'style': 'letter-spacing: 4px; font-weight: bold;',
+        }),
+    )
+
+    def __init__(self, user, *args, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)
+
+    def clean_current_password(self):
+        current_password = self.cleaned_data.get('current_password')
+        if not self.user.check_password(current_password):
+            raise ValidationError('Incorrect current password.')
+        return current_password
+
+    def clean_code(self):
+        code = self.cleaned_data.get('code', '').strip()
+        clean = ''.join(c for c in code if c.isdigit())
+        if len(clean) != 6:
+            raise ValidationError('Please enter a valid 6-digit code.')
+        return clean
+
+
+class TwoFactorSetupConfirmForm(forms.Form):
+    """Form to verify initial TOTP setup code."""
+    code = forms.CharField(
+        label='6-Digit Code from Authenticator App',
+        max_length=6,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control form-control-custom text-center',
+            'placeholder': '000000',
+            'autocomplete': 'one-time-code',
+            'inputmode': 'numeric',
+            'pattern': '[0-9]*',
+            'maxlength': '6',
+            'id': 'id_setup_code',
+            'style': 'letter-spacing: 6px; font-size: 22px; font-weight: bold;',
+        }),
+    )
+
+    def clean_code(self):
+        code = self.cleaned_data.get('code', '').strip()
+        clean = ''.join(c for c in code if c.isdigit())
+        if len(clean) != 6:
+            raise ValidationError('Please enter a valid 6-digit code.')
+        return clean

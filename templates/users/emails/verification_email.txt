@@ -1,0 +1,14 @@
+Hello{% if user.full_name %} {{ user.full_name }}{% endif %},
+
+Thank you for registering with Crowd Heatmap & Business Intelligence Platform.
+
+Please verify your email address by opening the following link in your browser:
+
+{{ verification_url }}
+
+Note: This link is single-use and will expire in {{ expiration_hours|default:24 }} hours.
+
+If you did not register for an account on Crowd Heatmap, please ignore this email.
+
+Thanks,
+The Crowd Heatmap Team

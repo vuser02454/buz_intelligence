@@ -194,14 +194,44 @@ Business_Intelligence-main/
 - **pip**
 - **Google AI Studio API Key** (optional, for chatbot) — [Get one here](https://aistudio.google.com/apikey)
 
-### 1. Clone the Repository
+### 1. One-Command Quick Start (Recommended)
+
+Start both frontend and backend instantly from your terminal:
+
+```bash
+# macOS / Linux
+./run.sh
+
+# Cross-platform Python CLI
+python3 run.py
+
+# Make
+make dev
+
+# npm / Node.js
+npm run dev
+
+# Windows (PowerShell / Command Prompt)
+.\run.ps1
+# or: run.bat
+```
+
+Open your browser at: **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**
+
+---
+
+### Manual Setup & Execution
+
+If you prefer to configure manually:
+
+#### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/Rajan-4900/demo_business_intel.git
 cd demo_business_intel
 ```
 
-### 2. Create a Virtual Environment
+#### 2. Create a Virtual Environment
 
 **macOS / Linux:**
 ```bash
@@ -215,13 +245,13 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 3. Install Dependencies
+#### 3. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+#### 4. Configure Environment Variables
 
 Create a `.env` file in the project root:
 
@@ -230,33 +260,32 @@ Create a `.env` file in the project root:
 GEMINI_API_KEY=your_google_api_key_here
 
 # Optional: override default Gemini model
-GEMINI_MODEL_NAME=models/gemini-2.0-flash
+GEMINI_MODEL_NAME=gemini-2.5-flash
 
 # Django settings
 DEBUG=True
 SECRET_KEY=your_django_secret_key_here
 ```
 
-### 5. Run Database Migrations
+#### 5. Run Database Migrations
 
 ```bash
 python manage.py migrate
 ```
 
-### 6. (Optional) Create Superuser
+#### 6. (Optional) Create Superuser
 
 ```bash
 python manage.py createsuperuser
 ```
 
-### 7. (Optional) Retrain ML Model
+#### 7. (Optional) Retrain ML Model
 
 If you update `crowd_heatmap_project/business_dataset.csv`, retrain the classifier:
 
 ```bash
-cd crowd_heatmap_project
-python train_model.py
-cd ..
+python run.py train
+# or: python crowd_heatmap_project/train_model.py
 ```
 
 ---
@@ -266,7 +295,9 @@ cd ..
 Run the full Django test suite to verify the spatial prediction engine and revenue calculations:
 
 ```bash
-python manage.py test
+./run.sh test
+# or: python3 run.py test
+# or: make test
 ```
 
 ---
@@ -278,7 +309,9 @@ python manage.py test
 Daphne is configured as the ASGI application handler:
 
 ```bash
-python manage.py runserver
+./run.sh
+# or: python3 run.py dev --port 8000
+# or: python manage.py runserver
 ```
 
 Open your browser and navigate to: **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**

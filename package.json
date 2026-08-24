@@ -1,0 +1,27 @@
+{
+  "name": "crowd-heatmap-business-intelligence",
+  "version": "1.0.0",
+  "description": "Crowd Heatmap & Business Intelligence Web Platform",
+  "main": "run.py",
+  "scripts": {
+    "start": "python3 run.py dev",
+    "dev": "python3 run.py dev",
+    "setup": "python3 run.py setup",
+    "migrate": "python3 run.py migrate",
+    "test": "python3 run.py test",
+    "train": "python3 run.py train",
+    "superuser": "python3 run.py superuser",
+    "check": "python3 run.py check",
+    "clean": "python3 run.py clean"
+  },
+  "keywords": [
+    "business-intelligence",
+    "heatmap",
+    "django",
+    "machine-learning",
+    "daphne",
+    "websockets"
+  ],
+  "author": "",
+  "license": "MIT"
+}

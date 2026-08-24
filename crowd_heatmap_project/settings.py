@@ -154,7 +154,7 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage" if DEBUG else "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
 
@@ -180,16 +180,20 @@ LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
 LOGOUT_REDIRECT_URL = 'home'
 
-# Email backend (console for development - prints to terminal)
-# For production, configure SMTP:
-#   EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-#   EMAIL_HOST = 'smtp.example.com'
-#   EMAIL_PORT = 587
-#   EMAIL_USE_TLS = True
-#   EMAIL_HOST_USER = 'your-email@example.com'
-#   EMAIL_HOST_PASSWORD = 'your-app-password'
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-
-# Email settings (used by password reset and other emails)
-DEFAULT_FROM_EMAIL = 'Crowd Heatmap <noreply@crowdheatmap.local>'
+# Email settings (SMTP through environment variables, console backend default for dev)
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend' if DEBUG else 'django.core.mail.backends.smtp.EmailBackend'
+)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'False').lower() in ('true', '1', 'yes')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Crowd Heatmap <noreply@crowdheatmap.local>')
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+# Token Expiration Settings (in seconds)
+EMAIL_VERIFICATION_TIMEOUT = int(os.environ.get('EMAIL_VERIFICATION_TIMEOUT', 86400))  # 24 hours
+PASSWORD_RESET_TIMEOUT = int(os.environ.get('PASSWORD_RESET_TIMEOUT', 86400))  # 24 hours

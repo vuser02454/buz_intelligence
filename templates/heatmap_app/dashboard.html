@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% load static %}
 
 {% block title %}Dashboard - Crowd Heatmap{% endblock %}
@@ -30,8 +30,8 @@
             <a href="#" id="sidebar-startup-form-link" class="sidebar-link">
                 <i class="fas fa-clipboard-list me-3"></i>Startup Form
             </a>
-            <a href="#" class="sidebar-link">
-                <i class="fas fa-user me-3"></i>Profile
+            <a href="{% url 'security_center' %}" class="sidebar-link">
+                <i class="fas fa-shield-halved me-3"></i>Security & Account
             </a>
             <a href="{% url 'logout' %}" class="sidebar-link sidebar-link-logout">
                 <i class="fas fa-sign-out-alt me-3"></i>Logout

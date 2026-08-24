@@ -1,118 +1,116 @@
-# How to Execute the Crowd Heatmap Project
+# How to Execute the Crowd Heatmap & Business Intelligence Project
 
-## Step-by-Step Execution Guide
+This project includes a unified terminal runner that starts both the frontend and backend with a single command.
 
-### Step 1: Navigate to Project Directory
-Open PowerShell or Command Prompt and navigate to the project folder:
-```powershell
-cd C:\Users\vhavi\OneDrive\Documents\Desktop\crowd_heatmap
+---
+
+## Quick Start (One Command)
+
+Choose your preferred environment:
+
+### macOS / Linux
+```bash
+./run.sh
 ```
 
-### Step 2: Install Dependencies
-Install all required Python packages:
+### Python CLI (Cross-Platform)
+```bash
+python3 run.py
+```
+
+### Make
+```bash
+make run
+```
+
+### npm / Node.js
+```bash
+npm run dev
+```
+
+### Windows (PowerShell / Command Prompt)
 ```powershell
+# In PowerShell:
+.\run.ps1
+
+# In Command Prompt:
+run.bat
+```
+
+Once started, open your browser at:
+- **Frontend Dashboard:** [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- **Business Intelligence Analytics:** [http://127.0.0.1:8000/dashboard/](http://127.0.0.1:8000/dashboard/)
+- **Admin Panel:** [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/)
+- **WebSocket AI Chatbot:** `ws://127.0.0.1:8000/ws/chat/`
+
+---
+
+## All CLI Commands
+
+| Action | Bash Script | Python CLI | Make | npm |
+| :--- | :--- | :--- | :--- | :--- |
+| **Start Server** | `./run.sh` | `python3 run.py` | `make dev` | `npm run dev` |
+| **Custom Port** | `./run.sh --port 8080` | `python3 run.py --port 8080` | `make dev PORT=8080` | — |
+| **First-Time Setup** | `./run.sh setup` | `python3 run.py setup` | `make setup` | `npm run setup` |
+| **Run Migrations** | `./run.sh migrate` | `python3 run.py migrate` | `make migrate` | `npm run migrate` |
+| **Run Tests** | `./run.sh test` | `python3 run.py test` | `make test` | `npm test` |
+| **Train ML Model** | `./run.sh train` | `python3 run.py train` | `make train` | `npm run train` |
+| **Create Superuser** | `./run.sh superuser` | `python3 run.py superuser` | `make superuser` | `npm run superuser` |
+| **System Check** | `./run.sh check` | `python3 run.py check` | `make check` | `npm run check` |
+| **Clean Cache** | `./run.sh clean` | `python3 run.py clean` | `make clean` | `npm run clean` |
+| **Help Menu** | `./run.sh help` | `python3 run.py --help` | `make help` | — |
+
+---
+
+## Manual Step-by-Step Setup
+
+If you prefer to run the raw underlying commands:
+
+### 1. Create and Activate Virtual Environment
+```bash
+# macOS/Linux
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Windows PowerShell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+### 2. Install Dependencies
+```bash
 pip install -r requirements.txt
 ```
 
-**Note:** If you encounter any issues, you can install packages individually:
-```powershell
-pip install django==6.0.1
-pip install channels==4.1.0
-pip install daphne==4.1.2
-pip install opencv-python==4.10.0.84
-pip install numpy
-pip install requests
-```
-
-### Step 3: Run Database Migrations (if not already done)
-```powershell
+### 3. Run Database Migrations
+```bash
 python manage.py migrate
 ```
 
-### Step 4: Create Superuser (Optional - for admin access)
-This allows you to access the Django admin panel:
-```powershell
-python manage.py createsuperuser
-```
-Follow the prompts to create a username, email, and password.
-
-### Step 5: Start the Development Server
-```powershell
+### 4. Start ASGI Daphne Server
+```bash
 python manage.py runserver
 ```
 
-You should see output like:
-```
-Starting development server at http://127.0.0.1:8000/
-Quit the server with CTRL-BREAK.
-```
-
-### Step 6: Open in Browser
-Open your web browser and navigate to:
-```
-http://127.0.0.1:8000/
-```
-
-### Step 7: Access Admin Panel (Optional)
-If you created a superuser, you can access the admin panel at:
-```
-http://127.0.0.1:8000/admin/
-```
-
-## Quick Start (All Commands Together)
-
-```powershell
-# Navigate to project
-cd C:\Users\vhavi\OneDrive\Documents\Desktop\crowd_heatmap
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run migrations
-python manage.py migrate
-
-# Start server
-python manage.py runserver
-```
-
-Then open: **http://127.0.0.1:8000/**
+---
 
 ## Troubleshooting
 
 ### Port Already in Use
-If port 8000 is already in use, specify a different port:
-```powershell
-python manage.py runserver 8080
+If port 8000 is occupied, use a different port:
+```bash
+./run.sh --port 8080
+# or
+python3 run.py --port 8080
 ```
 
-### Module Not Found Errors
-Make sure you're in a virtual environment (recommended):
-```powershell
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment (Windows PowerShell)
-.\venv\Scripts\Activate.ps1
-
-# Then install dependencies
-pip install -r requirements.txt
+### Missing Module Errors
+Ensure your virtual environment is active or run:
+```bash
+./run.sh setup
+# or
+python3 run.py setup
 ```
 
-### Database Errors
-If you get database errors, try:
-```powershell
-python manage.py makemigrations
-python manage.py migrate
-```
-
-## Using the Application
-
-1. **Search Locations**: Type a location in the search bar and click "Search"
-2. **Find Your Location**: Click "Find My Location" button
-3. **Find Popular Places**: After finding your location, click "Find Popular Places (5km)"
-4. **Submit Form**: Click "Submit Business Info" button, fill the form, and submit
-5. **Chatbot**: Use the chatbot in the bottom-right corner for help
-
-## Stopping the Server
-
-Press `CTRL + C` in the terminal to stop the development server.
+### Stopping the Server
+Press `CTRL + C` in your terminal to safely stop the server.
