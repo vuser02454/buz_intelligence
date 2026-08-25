@@ -2,10 +2,11 @@
 
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/django-6.0+-green.svg)](https://www.djangoproject.com/)
+[![Database](https://img.shields.io/badge/database-PostgreSQL%20%7C%20Supabase%20%7C%20SQLite-336791.svg)](https://supabase.com/)
 [![AI](https://img.shields.io/badge/AI-Google%20Gemini-orange.svg)](https://ai.google.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-An end-to-end **Business Intelligence (BI)** web platform that helps entrepreneurs and business owners evaluate where to open a business in India. The system combines **real-time crowd density mapping**, **machine-learning business recommendations**, an **Extended Huff Gravity Model & multi-factor revenue forecasting engine**, and an **AI assistant** powered by Google Gemini.
+An end-to-end **Business Intelligence (BI)** web platform that helps entrepreneurs and business owners evaluate where to open a business in India. The system combines **real-time crowd density mapping**, **machine-learning business recommendations**, an **Extended Huff Gravity Model & multi-factor revenue forecasting engine**, enterprise-grade **2FA & Account Security**, and an **AI assistant** powered by Google Gemini.
 
 ---
 
@@ -17,12 +18,14 @@ An end-to-end **Business Intelligence (BI)** web platform that helps entrepreneu
 - [Technology Stack](#technology-stack)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
+- [Database Configuration & Supabase](#database-configuration--supabase)
 - [Environment Variables](#environment-variables)
 - [Running the Application](#running-the-application)
 - [Running Tests](#running-tests)
 - [API Endpoints](#api-endpoints)
 - [Revenue & Feasibility Engines](#revenue--feasibility-engines)
 - [Machine Learning Model](#machine-learning-model)
+- [Account Security & 2FA](#account-security--2fa)
 - [User Guide](#user-guide)
 - [Deployment](#deployment)
 - [Documentation](#documentation)
@@ -60,9 +63,12 @@ Data is sourced live from **OpenStreetMap** (Nominatim geocoding + Overpass API)
 - **Per-POI Revenue Enrichment** (`enrich_places_with_revenue`): Estimates revenue for nearby businesses with high efficiency.
 - **Feasibility Checker**: Evaluates Go/No-Go decisions using CSV intensity rules, ML prediction, and live POI density evidence.
 
-### User Authentication
-- Custom email-based user model (`users.CustomUser`) with roles: **Businessman** and **Customer**.
-- Registration, login, logout, and password reset flows.
+### Enterprise Account Security & 2FA
+- **Custom User Model** (`users.CustomUser`) using email authentication with roles (**Businessman** & **Customer**).
+- **Two-Factor Authentication (2FA)**: Time-based One-Time Passwords (TOTP) compatible with Google Authenticator, Authy, etc.
+- **Single-Use Recovery Codes**: Cryptographically hashed backup codes for account recovery.
+- **Active Session & Device Management**: View active sessions with device names/IPs and revoke any session remotely.
+- **Security Audit Logs**: Automated logging of logins, password resets, and 2FA events.
 
 ### Interactive Dashboard
 - Analytics UI with live revenue animation, business intelligence panel, 4×4 popular places flashcard matrix, and feasibility evaluation.
@@ -98,8 +104,8 @@ Data is sourced live from **OpenStreetMap** (Nominatim geocoding + Overpass API)
                │
                ▼
 ┌──────────────────────────┐
-│  SQLite / PostgreSQL     │
-│  (User & form data)      │
+│ SQLite / Supabase (Pg)   │
+│ (User, Security & Data)  │
 └──────────────────────────┘
 ```
 
@@ -114,11 +120,12 @@ Data is sourced live from **OpenStreetMap** (Nominatim geocoding + Overpass API)
 | Frontend | HTML5, CSS3, Vanilla JavaScript (ES6+), Leaflet.js |
 | Machine Learning | Scikit-Learn, Pandas, NumPy |
 | Spatial Modeling | Extended Huff Gravity Model |
-| Generative AI | Google Generative AI (Gemini 2.0 Flash) |
+| Generative AI | Google Generative AI (Gemini 2.0 / 2.5 Flash) |
 | Geospatial Data | OpenStreetMap (Nominatim & Overpass API) |
-| Database | SQLite (dev) / PostgreSQL via `dj-database-url` (prod) |
+| Database | SQLite (default dev) / PostgreSQL / Supabase via `dj-database-url` |
+| Security & 2FA | PyOTP, QRCode, Cryptographic Hash Recovery Codes |
 | Static Files | WhiteNoise 6.7 |
-| Deployment | Render / Railway (Procfile included) |
+| Deployment | Render / Railway / Supabase (Procfile included) |
 
 ---
 
@@ -155,25 +162,26 @@ Business_Intelligence-main/
 │   ├── urls.py                  # BI URL patterns
 │   └── tests.py                 # Prediction engine test suite
 │
-├── users/                       # Authentication app
-│   ├── models.py                # CustomUser (email-based login)
-│   ├── views.py                 # Register, login, logout, password reset
-│   ├── forms.py
-│   └── urls.py
+├── users/                       # Authentication & Security app
+│   ├── models.py                # CustomUser, TwoFactorRecoveryCode, SecurityEvent, UserSession
+│   ├── views.py                 # Register, login, 2FA setup/verify, security center
+│   ├── forms.py                 # CustomUserCreationForm, AuthenticationForm, 2FA forms
+│   └── urls.py                  # Auth URL routing
 │
 ├── templates/                   # HTML templates
 │   ├── heatmap_app/             # Home, dashboard, contact pages
-│   ├── users/                   # Authentication templates
+│   ├── users/                   # Authentication & Security Center templates
 │   └── base.html                # Global base layout & floating assistant
 │
 ├── static/                      # Static assets
-│   ├── css/style.css            # Styles & responsive design
+│   ├── css/style.css            # Responsive styles, glassmorphism, UI components
 │   └── js/                      # Frontend scripts (main.js, analytics, forms)
 │
 ├── docs/                        # Extended documentation
 │   ├── RUN_INSTRUCTIONS.md
 │   ├── GEOLOCATION_GUIDE.md
 │   ├── AUTH_STRUCTURE_SUMMARY.md
+│   ├── CUSTOM_USER_MIGRATION_INSTRUCTIONS.md
 │   ├── REVENUE_STRUCTURE_REPORT.md
 │   ├── MAP_DEBUG_CHECKLIST.md
 │   └── STATIC_TESTING.md
@@ -190,9 +198,10 @@ Business_Intelligence-main/
 
 ### Prerequisites
 
-- **Python 3.10+** (Tested on Python 3.10 through 3.14)
+- **Python 3.10+**
 - **pip**
-- **Google AI Studio API Key** (optional, for chatbot) — [Get one here](https://aistudio.google.com/apikey)
+- **Google AI Studio API Key** (optional, for Gemini AI Chatbot) — [Get one here](https://aistudio.google.com/apikey)
+- **Supabase Account** (optional, for cloud PostgreSQL database) — [supabase.com](https://supabase.com/)
 
 ### 1. One-Command Quick Start (Recommended)
 
@@ -222,13 +231,11 @@ Open your browser at: **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**
 
 ### Manual Setup & Execution
 
-If you prefer to configure manually:
-
 #### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Rajan-4900/demo_business_intel.git
-cd demo_business_intel
+git clone https://github.com/vuser02454/buz_intelligence.git
+cd buz_intelligence
 ```
 
 #### 2. Create a Virtual Environment
@@ -253,18 +260,27 @@ pip install -r requirements.txt
 
 #### 4. Configure Environment Variables
 
-Create a `.env` file in the project root:
+Create a `.env` file in the root directory:
 
 ```env
-# Required for AI chatbot
-GEMINI_API_KEY=your_google_api_key_here
-
-# Optional: override default Gemini model
+# AI Chatbot
+GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL_NAME=gemini-2.5-flash
 
-# Django settings
+# Django Security
 DEBUG=True
-SECRET_KEY=your_django_secret_key_here
+SECRET_KEY=your_secret_key_here
+
+# Database (Optional - defaults to SQLite if omitted)
+DATABASE_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres
+
+# Email / SMTP Settings (Optional - console output in dev)
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=your_email@gmail.com
+EMAIL_HOST_PASSWORD=your_app_password
+DEFAULT_FROM_EMAIL=Crowd Heatmap <noreply@crowdheatmap.local>
 ```
 
 #### 5. Run Database Migrations
@@ -279,20 +295,139 @@ python manage.py migrate
 python manage.py createsuperuser
 ```
 
-#### 7. (Optional) Retrain ML Model
+---
 
-If you update `crowd_heatmap_project/business_dataset.csv`, retrain the classifier:
+## Database Configuration & Supabase
 
-```bash
-python run.py train
-# or: python crowd_heatmap_project/train_model.py
+This project uses `dj-database-url` and supports **SQLite** (local default) and **PostgreSQL / Supabase** (cloud production).
+
+### Option A: Automatic Setup with Supabase URI (Recommended)
+1. Go to your [Supabase Project Dashboard](https://supabase.com/dashboard) ➔ **Project Settings** ➔ **Database**.
+2. Copy the **Connection URI** (Connection pooling on port `6543` or `5432`).
+3. Add `DATABASE_URL` to your `.env` file:
+   ```env
+   DATABASE_URL=postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres
+   ```
+4. Run Django migrations:
+   ```bash
+   ./run.sh migrate
+   # or
+   python3 manage.py migrate
+   ```
+
+### Option B: Manual SQL Execution (Supabase SQL Editor)
+If you want to create the database tables manually without using Django migrations, open **Supabase SQL Editor** and execute:
+
+```sql
+-- Custom User Table
+CREATE TABLE IF NOT EXISTS users_customuser (
+    id BIGSERIAL PRIMARY KEY,
+    password VARCHAR(128) NOT NULL,
+    last_login TIMESTAMPTZ NULL,
+    is_superuser BOOLEAN NOT NULL DEFAULT FALSE,
+    first_name VARCHAR(150) NOT NULL DEFAULT '',
+    last_name VARCHAR(150) NOT NULL DEFAULT '',
+    is_staff BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    date_joined TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    email VARCHAR(254) NOT NULL UNIQUE,
+    full_name VARCHAR(150) NOT NULL,
+    phone_number VARCHAR(20) NOT NULL,
+    user_type VARCHAR(20) NOT NULL DEFAULT 'customer',
+    email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    recovery_email VARCHAR(254) NULL,
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    totp_secret VARCHAR(64) NULL,
+    password_changed_at TIMESTAMPTZ NULL
+);
+
+-- 2FA Backup Recovery Codes
+CREATE TABLE IF NOT EXISTS users_twofactorrecoverycode (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users_customuser(id) ON DELETE CASCADE,
+    code_hash VARCHAR(128) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    used_at TIMESTAMPTZ NULL,
+    is_used BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+-- Security Event Logs
+CREATE TABLE IF NOT EXISTS users_securityevent (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users_customuser(id) ON DELETE CASCADE,
+    event_type VARCHAR(50) NOT NULL,
+    ip_address INET NULL,
+    user_agent TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Active User Sessions
+CREATE TABLE IF NOT EXISTS users_usersession (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users_customuser(id) ON DELETE CASCADE,
+    session_key VARCHAR(40) NOT NULL UNIQUE,
+    ip_address INET NULL,
+    user_agent TEXT NULL,
+    device_name VARCHAR(100) NOT NULL DEFAULT 'Web Browser',
+    last_activity TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Business Intelligence User Leads
+CREATE TABLE IF NOT EXISTS business_intelligence_businessuser (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(254) NOT NULL,
+    phone VARCHAR(20) NOT NULL,
+    business_type VARCHAR(100) NOT NULL,
+    recommended_business VARCHAR(100) NULL,
+    crowd_intensity VARCHAR(10) NOT NULL,
+    latitude DOUBLE PRECISION NULL,
+    longitude DOUBLE PRECISION NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Contact Inquiries
+CREATE TABLE IF NOT EXISTS tracker_contactmessage (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(254) NOT NULL,
+    subject VARCHAR(200) NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Django Sessions
+CREATE TABLE IF NOT EXISTS django_session (
+    session_key VARCHAR(40) NOT NULL PRIMARY KEY,
+    session_data TEXT NOT NULL,
+    expire_date TIMESTAMPTZ NOT NULL
+);
 ```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `DEBUG` | No | `False` | Toggle Django debug mode (`True`/`False`) |
+| `SECRET_KEY` | Yes (Prod) | Insecure dev key | Django cryptographic signing secret key |
+| `DATABASE_URL` | No | `sqlite:///db.sqlite3` | PostgreSQL/Supabase database connection URI |
+| `GEMINI_API_KEY` | No | None | Google AI Studio API key for interactive chatbot |
+| `GEMINI_MODEL_NAME` | No | `gemini-2.5-flash` | Gemini model version for chat assistant |
+| `EMAIL_BACKEND` | No | Console in Dev | `django.core.mail.backends.smtp.EmailBackend` in prod |
+| `EMAIL_HOST` | No | `smtp.gmail.com` | SMTP email server hostname |
+| `EMAIL_PORT` | No | `587` | SMTP server port |
+| `EMAIL_USE_TLS` | No | `True` | Enable TLS encryption |
+| `EMAIL_HOST_USER` | No | None | SMTP username / email address |
+| `EMAIL_HOST_PASSWORD` | No | None | SMTP password / app-specific password |
 
 ---
 
 ## Running Tests
 
-Run the full Django test suite to verify the spatial prediction engine and revenue calculations:
+Run the full automated test suite:
 
 ```bash
 ./run.sh test
@@ -341,6 +476,7 @@ daphne -b 0.0.0.0 -p 8000 crowd_heatmap_project.asgi:application
 | POST | `/api/find-matching-locations/` | Match locations by crowd intensity + business |
 | POST | `/submit-form/` | Submit business inquiry / user profile |
 | POST | `/contact/` | Contact message submission |
+| GET | `/accounts/security/` | Security Center (2FA, Sessions, Audit logs) |
 | WS | `/ws/chat/` | WebSocket chatbot (Gemini assistant) |
 
 ---
@@ -375,9 +511,23 @@ The platform incorporates **three revenue calculation models**:
 
 ---
 
+## Account Security & 2FA
+
+The platform includes a dedicated **Security Center** accessible to logged-in users:
+
+1. **Two-Factor Authentication**:
+   - Enable TOTP via QR Code scan using Google Authenticator, Microsoft Authenticator, or Authy.
+   - 8 single-use cryptographically hashed recovery codes are generated upon setup.
+2. **Session & Device Management**:
+   - Real-time device and IP tracking with single-click revocation of individual devices or all other sessions.
+3. **Security Audit Log**:
+   - Timestamped records of critical actions (logins, password changes, 2FA status modifications).
+
+---
+
 ## User Guide
 
-1. **Register & Log In**: Create an account at `/accounts/register/` and log in.
+1. **Register & Log In**: Create an account at `/accounts/register/` and set up 2FA in the Security Center.
 2. **Explore Map**: Search for any city or landmark in India, or click "Find My Location".
 3. **Analyze Crowd Intensity**: View the 3×3 sector heatmap (High, Medium, Low intensity).
 4. **Discover Popular Places**: Click "Popular Places" to generate the 4×4 business flashcard matrix and revenue estimates.
@@ -392,7 +542,7 @@ The repository includes ready-to-use deployment configuration for **Render**, **
 
 - `Procfile`: `web: daphne -b 0.0.0.0 -p $PORT crowd_heatmap_project.asgi:application`
 - `whitenoise` handles static asset serving and caching.
-- Configure `DATABASE_URL` for PostgreSQL connections.
+- Configure `DATABASE_URL` for PostgreSQL / Supabase connections.
 - Set `DEBUG=False` and supply `SECRET_KEY` and `GEMINI_API_KEY` in environment variables.
 
 ---
@@ -400,11 +550,12 @@ The repository includes ready-to-use deployment configuration for **Render**, **
 ## Documentation
 
 | Document | Description |
-|----------|-------------|
-| [Run Instructions](docs/RUN_INSTRUCTIONS.md) | Step-by-step setup guide |
-| [Geolocation Guide](docs/GEOLOCATION_GUIDE.md) | Map & GPS integration |
+| :--- | :--- |
+| [Run Instructions](docs/RUN_INSTRUCTIONS.md) | Step-by-step runner and setup guide |
+| [Geolocation Guide](docs/GEOLOCATION_GUIDE.md) | Map & GPS integration details |
 | [Auth Structure Summary](docs/AUTH_STRUCTURE_SUMMARY.md) | Authentication & user roles |
-| [Revenue Structure Report](docs/REVENUE_STRUCTURE_REPORT.md) | In-depth revenue engine equations |
+| [Custom User Migration Instructions](docs/CUSTOM_USER_MIGRATION_INSTRUCTIONS.md) | Database migration documentation |
+| [Revenue Structure Report](docs/REVENUE_STRUCTURE_REPORT.md) | In-depth revenue engine mathematical equations |
 | [Map Debug Checklist](docs/MAP_DEBUG_CHECKLIST.md) | Troubleshooting map & Leaflet issues |
 | [Static Testing](docs/STATIC_TESTING.md) | Static file testing guide |
 

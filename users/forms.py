@@ -13,7 +13,7 @@ from .models import CustomUser, UserType
 
 
 class LoginForm(forms.Form):
-    """Clean login form with email normalization and verification check."""
+    """Clean login form with email normalization for Supabase Auth."""
     email = forms.EmailField(
         label='Email Address',
         widget=forms.EmailInput(attrs={
@@ -40,34 +40,6 @@ class LoginForm(forms.Form):
 
     def clean_email(self):
         return self.cleaned_data.get('email', '').strip().lower()
-
-    def clean(self):
-        cleaned_data = super().clean()
-        email = cleaned_data.get('email')
-        password = cleaned_data.get('password')
-
-        if email and password:
-            self.user = authenticate(username=email, password=password)
-            if self.user is None:
-                raise ValidationError(
-                    'Invalid email or password. Please check your credentials and try again.',
-                    code='invalid_login',
-                )
-            if not self.user.is_active:
-                raise ValidationError(
-                    'This account is currently inactive. Please contact support.',
-                    code='inactive',
-                )
-            if not getattr(self.user, 'email_verified', False):
-                self.unverified_email = email
-                raise ValidationError(
-                    'Your email address has not been verified yet. Please check your inbox or request a new verification email.',
-                    code='unverified',
-                )
-        return cleaned_data
-
-    def get_user(self):
-        return getattr(self, 'user', None)
 
 
 class UserCreationForm(forms.ModelForm):

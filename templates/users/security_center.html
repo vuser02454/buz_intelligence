@@ -42,12 +42,19 @@
 
                 <div class="d-flex flex-column gap-3 small">
                     <div>
+                        <span class="text-muted d-block mb-1">Identity Provider:</span>
+                        <span class="badge bg-primary bg-opacity-25 text-info border border-info border-opacity-25">
+                            <i class="fas fa-bolt me-1"></i> Supabase Auth
+                        </span>
+                    </div>
+
+                    <div>
                         <span class="text-muted d-block mb-1">Primary Email:</span>
                         <span class="fw-semibold text-white font-monospace">{{ masked_email }}</span>
                     </div>
 
                     <div>
-                        <span class="text-muted d-block mb-1">Email Verification:</span>
+                        <span class="text-muted d-block mb-1">Email Verification (Supabase):</span>
                         {% if user.email_verified %}
                             <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25">
                                 <i class="fas fa-check-circle me-1"></i> Verified
@@ -67,7 +74,7 @@
                     {% endif %}
 
                     <div>
-                        <span class="text-muted d-block mb-1">Two-Factor Authentication (2FA):</span>
+                        <span class="text-muted d-block mb-1">Two-Factor Authentication (Django TOTP):</span>
                         {% if user.two_factor_enabled %}
                             <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25">
                                 <i class="fas fa-lock me-1"></i> Active (TOTP)

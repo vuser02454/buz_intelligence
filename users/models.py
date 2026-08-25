@@ -55,6 +55,16 @@ class CustomUser(AbstractUser):
         help_text='Designates whether this user has verified their email address.',
     )
 
+    # Supabase Auth Identity Mapping
+    supabase_user_id = models.UUIDField(
+        'Supabase Auth User ID',
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text='Unique identifier from Supabase auth.users',
+    )
+
     # Security & Recovery fields
     recovery_email = models.EmailField(
         'recovery email',

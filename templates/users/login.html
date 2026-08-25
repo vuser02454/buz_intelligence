@@ -127,6 +127,13 @@
         <h2 class="mb-3 fw-bold">Welcome Back</h2>
         <p class="text-muted mb-4 fs-6">Enter your credentials to access your dashboard.</p>
 
+        {% if request.GET.verified == 'true' %}
+            <div class="alert alert-info-custom alert-dismissible fade show" role="alert">
+                <i class="fas fa-check-circle me-2"></i><strong>Email Verified!</strong> Your account is confirmed. Please log in below.
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        {% endif %}
+
         {% if messages %}
             {% for message in messages %}
                 <div class="alert {% if message.tags == 'error' %}alert-custom{% else %}alert-info-custom{% endif %} alert-dismissible fade show" role="alert">

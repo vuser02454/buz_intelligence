@@ -1,18 +1,22 @@
 """
-URL routing configuration for user authentication, 2FA, password recovery,
-account recovery, and security dashboard.
+URL routing configuration for user authentication, Supabase Auth callbacks,
+2FA, password recovery, account recovery, and security dashboard.
 """
 from django.urls import path
 from . import views
 
 urlpatterns = [
-    # Registration & Verification
+    # Registration & Supabase Verification
     path('register/', views.register_view, name='register'),
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
     path('verify-email/', views.verify_email_sent_view, name='verify_email_sent'),
     path('verify-email/<str:uidb64>/<str:token>/', views.verify_email_confirm_view, name='verify_email_confirm'),
     path('resend-verification/', views.resend_verification_view, name='resend_verification'),
+
+    # Supabase Auth Callback & API Session Sync
+    path('auth/callback/', views.auth_callback_view, name='auth_callback'),
+    path('auth/sync-session/', views.auth_sync_session_api, name='auth_sync_session_api'),
 
     # Two-Factor Authentication Login Challenge & Backup Recovery Code
     path('2fa/', views.two_factor_verify_view, name='two_factor_verify'),
@@ -21,11 +25,11 @@ urlpatterns = [
     # Forgot Email / Account Recovery
     path('forgot-email/', views.forgot_email_view, name='forgot_email'),
 
-    # Password Reset
-    path('password-reset/', views.CustomPasswordResetView.as_view(), name='password_reset'),
-    path('password-reset/done/', views.CustomPasswordResetDoneView.as_view(), name='password_reset_done'),
-    path('password-reset/<str:uidb64>/<str:token>/', views.CustomPasswordResetConfirmView.as_view(), name='password_reset_confirm'),
-    path('password-reset/complete/', views.CustomPasswordResetCompleteView.as_view(), name='password_reset_complete'),
+    # Password Reset (Supabase-powered)
+    path('password-reset/', views.password_reset_view, name='password_reset'),
+    path('password-reset/done/', views.password_reset_done_view, name='password_reset_done'),
+    path('password-reset-confirm/', views.password_reset_confirm_view, name='password_reset_confirm_direct'),
+    path('password-reset/<str:uidb64>/<str:token>/', views.password_reset_confirm_view, name='password_reset_confirm'),
 
     # Dashboard Security Center & Account Management
     path('security/', views.security_center_view, name='security_center'),

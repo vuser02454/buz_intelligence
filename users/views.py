@@ -1,22 +1,23 @@
 """
-Authentication, Registration, 2FA, Security Center, and Account Recovery Views.
+Authentication, Registration, Supabase Auth Sync, 2FA, Security Center, and Account Recovery Views.
+Integrates Supabase Auth as the primary identity provider while retaining Django business logic,
+2FA TOTP verification, security event logging, and session device tracking.
 """
+import json
 import logging
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.views import (
-    PasswordResetCompleteView,
-    PasswordResetConfirmView,
-    PasswordResetDoneView,
-    PasswordResetView,
-)
 from django.db.models import Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse, reverse_lazy
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import urlsafe_base64_decode
+from django.views.decorators.csrf import csrf_protect
+
+from .tokens import email_verification_token
 
 from .forms import (
     ChangePasswordDashboardForm,
@@ -33,7 +34,16 @@ from .forms import (
 )
 from .models import CustomUser, SecurityEvent, TwoFactorRecoveryCode, UserSession
 from .ratelimit import check_rate_limit, rate_limit_required
-from .tokens import email_verification_token
+from .supabase_service import (
+    get_or_sync_custom_user,
+    get_user_by_token,
+    is_supabase_configured,
+    resend_verification_email,
+    send_password_reset_email,
+    sign_in_with_password,
+    sign_up,
+    update_user_password,
+)
 from .two_factor import (
     generate_qr_code_data_uri,
     generate_recovery_codes,
@@ -51,7 +61,6 @@ from .utils import (
     send_account_recovery_email,
     send_password_changed_notification,
     send_recovery_code_used_notification,
-    send_verification_email,
     track_user_session,
 )
 
@@ -59,7 +68,11 @@ logger = logging.getLogger(__name__)
 
 
 def register_view(request):
-    """Register new user, create unverified account, send verification email."""
+    """
+    Register new user.
+    Creates user in Supabase Auth (which dispatches the confirmation email)
+    and syncs the initial unverified profile in users_customuser.
+    """
     if request.user.is_authenticated:
         return redirect('dashboard')
 
@@ -70,9 +83,34 @@ def register_view(request):
 
         form = UserCreationForm(request.POST)
         if form.is_valid():
-            user = form.save()
-            send_verification_email(user, request)
-            request.session['verify_email_sent_to'] = user.email
+            email = form.cleaned_data['email']
+            password = form.cleaned_data['password']
+            metadata = {
+                'full_name': form.cleaned_data['full_name'],
+                'phone_number': form.cleaned_data['phone_number'],
+                'user_type': form.cleaned_data['user_type'],
+                'recovery_email': form.cleaned_data.get('recovery_email'),
+            }
+
+            site_url = getattr(settings, 'SITE_URL', 'http://127.0.0.1:8000')
+            redirect_to = f"{site_url}/accounts/auth/callback/"
+
+            # 1. Sign up via Supabase Auth
+            if is_supabase_configured():
+                res = sign_up(email=email, password=password, metadata=metadata, redirect_to=redirect_to)
+                if not res.get('success'):
+                    messages.error(request, f"Registration failed: {res.get('error', 'Please check your information.')}")
+                    return render(request, 'users/register.html', {'form': form})
+                
+                # Sync into CustomUser
+                user_data = res.get('user') or {'email': email}
+                user = get_or_sync_custom_user(user_data, additional_fields=metadata)
+            else:
+                # Fallback in local development if Supabase env is not configured
+                user = form.save()
+                send_verification_email(user, request)
+
+            request.session['verify_email_sent_to'] = email
             return redirect('verify_email_sent')
     else:
         form = UserCreationForm()
@@ -81,7 +119,11 @@ def register_view(request):
 
 
 def login_view(request):
-    """Authenticate credentials. Handles 2FA staging and unverified restrictions."""
+    """
+    Authenticate user credentials with Supabase Auth.
+    Checks email confirmation status, routes through Django 2FA (if enabled),
+    and establishes an active authenticated Django session.
+    """
     if request.user.is_authenticated:
         return redirect('dashboard')
 
@@ -94,18 +136,55 @@ def login_view(request):
 
         form = LoginForm(request.POST)
         if form.is_valid():
-            user = form.get_user()
+            email = form.cleaned_data['email']
+            password = form.cleaned_data['password']
             remember_me = form.cleaned_data.get('remember_me', False)
 
-            # Check if 2FA is active
+            user = None
+
+            # 1. Primary Authentication via Supabase Auth
+            if is_supabase_configured():
+                auth_res = sign_in_with_password(email=email, password=password)
+
+                if not auth_res.get('success'):
+                    if auth_res.get('is_unconfirmed'):
+                        unverified_email = email
+                        messages.warning(request, 'Please verify your email address before logging in.')
+                    else:
+                        messages.error(request, 'Invalid email or password. Please check your credentials and try again.')
+                    return render(request, 'users/login.html', {
+                        'form': form,
+                        'unverified_email': unverified_email,
+                    })
+
+                # Supabase authentication succeeded
+                user_data = auth_res.get('user') or {}
+                user = get_or_sync_custom_user(user_data)
+            else:
+                # Local fallback when Supabase is not configured
+                from django.contrib.auth import authenticate
+                user = authenticate(username=email, password=password)
+                if user is None:
+                    messages.error(request, 'Invalid email or password.')
+                    return render(request, 'users/login.html', {'form': form})
+                if not getattr(user, 'email_verified', False):
+                    unverified_email = email
+                    messages.warning(request, 'Please verify your email address before logging in.')
+                    return render(request, 'users/login.html', {'form': form, 'unverified_email': unverified_email})
+
+            if not user or not user.is_active:
+                messages.error(request, 'This account is currently inactive. Please contact support.')
+                return render(request, 'users/login.html', {'form': form})
+
+            # 2. Check if 2FA is active
             if getattr(user, 'two_factor_enabled', False) and user.totp_secret:
                 request.session['pre_2fa_user_id'] = user.pk
                 request.session['pre_2fa_remember_me'] = remember_me
                 request.session['pre_2fa_next'] = request.POST.get('next', request.GET.get('next', 'dashboard'))
                 return redirect('two_factor_verify')
 
-            # Standard Login
-            login(request, user)
+            # 3. Standard Login session
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
             if not remember_me:
                 request.session.set_expiry(0)
 
@@ -115,8 +194,6 @@ def login_view(request):
             messages.success(request, f"Welcome back, {user.full_name or user.email}!")
             next_url = request.POST.get('next') or request.GET.get('next') or 'dashboard'
             return redirect(next_url)
-        else:
-            unverified_email = getattr(form, 'unverified_email', None)
     else:
         form = LoginForm()
 
@@ -124,6 +201,61 @@ def login_view(request):
         'form': form,
         'unverified_email': unverified_email,
     })
+
+
+def auth_callback_view(request):
+    """
+    Handle redirects from Supabase Auth (Email Confirmation, Magic Link, Password Recovery).
+    Parses token from Supabase client-side or query params, validates user,
+    syncs email_verified state, and redirects accordingly.
+    """
+    return render(request, 'users/auth_callback.html', {
+        'site_url': getattr(settings, 'SITE_URL', 'http://127.0.0.1:8000'),
+    })
+
+
+@csrf_protect
+def auth_sync_session_api(request):
+    """
+    API endpoint for securely syncing an authenticated Supabase session to Django.
+    Validates the Supabase JWT access token on the backend and establishes a Django session.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+        access_token = data.get('access_token')
+        event_type = data.get('event_type', 'EMAIL_VERIFIED')
+
+        if not access_token:
+            return JsonResponse({'success': False, 'error': 'Missing access token'}, status=400)
+
+        # Validate token with Supabase
+        user_res = get_user_by_token(access_token)
+        if not user_res.get('success'):
+            return JsonResponse({'success': False, 'error': user_res.get('error', 'Invalid token')}, status=401)
+
+        user_data = user_res.get('user')
+        custom_user = get_or_sync_custom_user(user_data)
+
+        if not custom_user:
+            return JsonResponse({'success': False, 'error': 'User profile could not be synced'}, status=500)
+
+        if not custom_user.email_verified:
+            custom_user.email_verified = True
+            custom_user.save(update_fields=['email_verified'])
+            log_security_event(custom_user, SecurityEvent.EventType.EMAIL_VERIFIED, request)
+
+        return JsonResponse({
+            'success': True,
+            'email_verified': custom_user.email_verified,
+            'email': custom_user.email,
+        })
+
+    except Exception as exc:
+        logger.error("Exception in auth_sync_session_api: %s", exc)
+        return JsonResponse({'success': False, 'error': 'Internal server error'}, status=500)
 
 
 def two_factor_verify_view(request):
@@ -147,7 +279,7 @@ def two_factor_verify_view(request):
                 next_url = request.session.pop('pre_2fa_next', 'dashboard')
                 request.session.pop('pre_2fa_user_id', None)
 
-                login(request, user)
+                login(request, user, backend='django.contrib.auth.backends.ModelBackend')
                 if not remember_me:
                     request.session.set_expiry(0)
 
@@ -189,7 +321,7 @@ def two_factor_recovery_view(request):
                 next_url = request.session.pop('pre_2fa_next', 'dashboard')
                 request.session.pop('pre_2fa_user_id', None)
 
-                login(request, user)
+                login(request, user, backend='django.contrib.auth.backends.ModelBackend')
                 if not remember_me:
                     request.session.set_expiry(0)
 
@@ -235,8 +367,41 @@ def verify_email_sent_view(request):
     return render(request, 'users/verify_email_sent.html', {'email': email, 'masked_email': masked})
 
 
+def resend_verification_view(request):
+    """
+    Resend confirmation email for unverified user.
+    Dispatches verification email to the user's inbox and enforces rate limiting.
+    """
+    if request.method == 'POST':
+        if not check_rate_limit(request, action='resend_verification', max_requests=5, window_seconds=300):
+            messages.error(request, 'Too many requests. Please wait a few minutes before trying again.')
+            return redirect('resend_verification')
+
+        form = ResendVerificationForm(request.POST)
+        if form.is_valid():
+            email = form.cleaned_data['email']
+            
+            # 1. Dispatch via Supabase if configured
+            if is_supabase_configured():
+                resend_verification_email(email)
+            
+            # 2. Dispatch via Django SMTP (Resend)
+            user = CustomUser.objects.filter(email__iexact=email, is_active=True).first()
+            if user and not user.email_verified:
+                send_verification_email(user, request)
+
+            request.session['verify_email_sent_to'] = email
+            messages.info(request, 'If an unverified account exists with that email, a new confirmation link has been sent.')
+            return redirect('verify_email_sent')
+    else:
+        initial_email = request.GET.get('email', '')
+        form = ResendVerificationForm(initial={'email': initial_email})
+
+    return render(request, 'users/resend_verification.html', {'form': form})
+
+
 def verify_email_confirm_view(request, uidb64, token):
-    """Verify time-limited single-use email verification link."""
+    """Backwards-compatible endpoint for token-based verification links."""
     try:
         uid = urlsafe_base64_decode(uidb64).decode()
         user = CustomUser.objects.get(pk=uid)
@@ -255,35 +420,10 @@ def verify_email_confirm_view(request, uidb64, token):
         })
 
 
-def resend_verification_view(request):
-    """Generic resend verification endpoint without account enumeration."""
-    if request.method == 'POST':
-        if not check_rate_limit(request, action='resend_verification', max_requests=5, window_seconds=300):
-            messages.error(request, 'Too many requests. Please wait a few minutes before trying again.')
-            return redirect('resend_verification')
-
-        form = ResendVerificationForm(request.POST)
-        if form.is_valid():
-            email = form.cleaned_data['email']
-            user = CustomUser.objects.filter(email__iexact=email, is_active=True).first()
-            if user and not user.email_verified:
-                send_verification_email(user, request)
-
-            request.session['verify_email_sent_to'] = email
-            messages.info(request, 'If an unverified account exists with that email, a new verification link has been sent.')
-            return redirect('verify_email_sent')
-    else:
-        initial_email = request.GET.get('email', '')
-        form = ResendVerificationForm(initial={'email': initial_email})
-
-    return render(request, 'users/resend_verification.html', {'form': form})
-
-
 def forgot_email_view(request):
     """
     Account recovery / Forgot email.
-    Finds account by recovery email or phone number, sends recovery details and reset link securely,
-    and shows masked email hint without leaking exact full username.
+    Finds account by recovery email or phone number and shows masked email hint without leaking exact full username.
     """
     masked_result = None
 
@@ -295,7 +435,6 @@ def forgot_email_view(request):
         form = ForgotEmailForm(request.POST)
         if form.is_valid():
             identifier = form.cleaned_data['identifier'].strip()
-            # Search by recovery email or phone number or exact email
             user = CustomUser.objects.filter(
                 Q(recovery_email__iexact=identifier) |
                 Q(phone_number__iexact=identifier) |
@@ -322,41 +461,95 @@ def forgot_email_view(request):
     })
 
 
-# Password Reset Views with Custom Forms
-class CustomPasswordResetView(PasswordResetView):
-    template_name = 'users/password_reset.html'
-    email_template_name = 'users/emails/password_reset_email.html'
-    subject_template_name = 'users/emails/password_reset_subject.txt'
-    form_class = CustomPasswordResetForm
-    success_url = reverse_lazy('password_reset_done')
+def password_reset_done_view(request):
+    """Password reset email dispatched notice page."""
+    return render(request, 'users/password_reset_done.html')
 
-    def form_valid(self, form):
-        if not check_rate_limit(self.request, action='password_reset', max_requests=5, window_seconds=300):
-            messages.error(self.request, 'Too many password reset requests. Please wait a few minutes.')
+
+
+def password_reset_view(request):
+    """
+    Initiate password reset request.
+    Dispatches password reset instructions directly to the user's email address.
+    """
+    if request.method == 'POST':
+        if not check_rate_limit(request, action='password_reset', max_requests=5, window_seconds=300):
+            messages.error(request, 'Too many password reset requests. Please wait a few minutes.')
             return redirect('password_reset')
-        return super().form_valid(form)
+
+        form = CustomPasswordResetForm(request.POST)
+        if form.is_valid():
+            email = form.cleaned_data['email']
+            site_url = getattr(settings, 'SITE_URL', 'http://127.0.0.1:8000')
+            redirect_to = f"{site_url}/accounts/password-reset-confirm/"
+
+            # 1. Supabase reset email
+            if is_supabase_configured():
+                send_password_reset_email(email, redirect_to=redirect_to)
+
+            # 2. Django SMTP reset email
+            user = CustomUser.objects.filter(email__iexact=email, is_active=True).first()
+            if user:
+                send_account_recovery_email(user, email, request)
+
+            return render(request, 'users/password_reset_done.html')
+    else:
+        form = CustomPasswordResetForm()
+
+    return render(request, 'users/password_reset.html', {'form': form})
 
 
-class CustomPasswordResetDoneView(PasswordResetDoneView):
-    template_name = 'users/password_reset_done.html'
+def password_reset_confirm_view(request, uidb64=None, token=None):
+    """
+    Set new password using Supabase Auth recovery token or Django fallback token.
+    """
+    if request.method == 'POST':
+        access_token = request.POST.get('access_token', '').strip()
+        new_password1 = request.POST.get('new_password1', '')
+        new_password2 = request.POST.get('new_password2', '')
 
+        if new_password1 != new_password2:
+            messages.error(request, 'Passwords do not match.')
+            return render(request, 'users/password_reset_confirm.html', {'access_token': access_token})
 
-class CustomPasswordResetConfirmView(PasswordResetConfirmView):
-    template_name = 'users/password_reset_confirm.html'
-    form_class = CustomSetPasswordForm
-    success_url = reverse_lazy('password_reset_complete')
+        if len(new_password1) < 8:
+            messages.error(request, 'Password must be at least 8 characters long.')
+            return render(request, 'users/password_reset_confirm.html', {'access_token': access_token})
 
-    def form_valid(self, form):
-        user = form.user
-        user.password_changed_at = timezone.now()
-        user.save(update_fields=['password_changed_at'])
-        log_security_event(user, SecurityEvent.EventType.PASSWORD_RESET, self.request)
-        send_password_changed_notification(user, self.request)
-        return super().form_valid(form)
+        if access_token and is_supabase_configured():
+            res = update_user_password(access_token, new_password1)
+            if not res.get('success'):
+                messages.error(request, f"Failed to reset password: {res.get('error', 'Please request a new link.')}")
+                return redirect('password_reset')
 
+            user_data = res.get('user') or {}
+            custom_user = get_or_sync_custom_user(user_data)
+            if custom_user:
+                custom_user.password_changed_at = timezone.now()
+                custom_user.save(update_fields=['password_changed_at'])
+                log_security_event(custom_user, SecurityEvent.EventType.PASSWORD_RESET, request)
+                send_password_changed_notification(custom_user, request)
+        elif uidb64 and token:
+            from django.contrib.auth.tokens import default_token_generator
+            try:
+                uid = urlsafe_base64_decode(uidb64).decode()
+                user = CustomUser.objects.get(pk=uid)
+            except (TypeError, ValueError, OverflowError, CustomUser.DoesNotExist):
+                user = None
 
-class CustomPasswordResetCompleteView(PasswordResetCompleteView):
-    template_name = 'users/password_reset_complete.html'
+            if user and default_token_generator.check_token(user, token):
+                user.set_password(new_password1)
+                user.password_changed_at = timezone.now()
+                user.save()
+                log_security_event(user, SecurityEvent.EventType.PASSWORD_RESET, request)
+                send_password_changed_notification(user, request)
+            else:
+                messages.error(request, 'Invalid or expired password reset link.')
+                return redirect('password_reset')
+
+        return render(request, 'users/password_reset_complete.html')
+
+    return render(request, 'users/password_reset_confirm.html', {'uidb64': uidb64, 'token': token})
 
 
 # ==============================================================================
@@ -377,6 +570,7 @@ def security_center_view(request):
         'recent_events': recent_events,
         'active_sessions_count': max(1, active_sessions_count),
         'remaining_recovery_codes': remaining_recovery_codes,
+        'is_supabase_managed': is_supabase_configured(),
     })
 
 
