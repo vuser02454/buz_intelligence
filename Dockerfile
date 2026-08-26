@@ -21,8 +21,8 @@ RUN pip install --upgrade pip && \
 ENV DJANGO_SETTINGS_MODULE=crowd_heatmap_project.settings
 RUN python manage.py collectstatic --noinput
 
-# Render will set the $PORT env var; expose it
-EXPOSE $PORT
+# Render injects PORT at runtime; default to 8000 at build time
+EXPOSE 8000
 
-# Start Daphne (ASGI server) – this is what Render will run
-CMD ["daphne", "-b", "0.0.0.0", "-p", "$PORT", "crowd_heatmap_project.asgi:application"]
+# Start Daphne (ASGI server) – shell form so $PORT is expanded at runtime
+CMD daphne -b 0.0.0.0 -p ${PORT:-8000} crowd_heatmap_project.asgi:application
