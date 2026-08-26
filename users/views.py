@@ -61,6 +61,7 @@ from .utils import (
     send_account_recovery_email,
     send_password_changed_notification,
     send_recovery_code_used_notification,
+    send_verification_email,
     track_user_session,
 )
 

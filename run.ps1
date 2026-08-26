@@ -5,7 +5,7 @@
 param (
     [string]$Command = "dev",
     [int]$Port = 8000,
-    [string]$Host = "127.0.0.1",
+    [string]$ServerHost = "127.0.0.1",
     [switch]$Help
 )
 
@@ -38,10 +38,10 @@ if ($Help -or $Command -eq "help") {
 }
 
 switch ($Command) {
-    "dev" { & $PythonExec run.py dev --host $Host --port $Port }
-    "start" { & $PythonExec run.py dev --host $Host --port $Port }
-    "server" { & $PythonExec run.py dev --host $Host --port $Port }
-    "run" { & $PythonExec run.py dev --host $Host --port $Port }
+    "dev" { & $PythonExec run.py dev --host $ServerHost --port $Port }
+    "start" { & $PythonExec run.py dev --host $ServerHost --port $Port }
+    "server" { & $PythonExec run.py dev --host $ServerHost --port $Port }
+    "run" { & $PythonExec run.py dev --host $ServerHost --port $Port }
     "setup" { & $PythonExec run.py setup }
     "migrate" { & $PythonExec run.py migrate }
     "test" { & $PythonExec run.py test }
