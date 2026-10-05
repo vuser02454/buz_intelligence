@@ -138,7 +138,7 @@ def predict_business(intensity, area_hint=None):
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.urls import reverse
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required  # kept for compatibility
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.contrib import messages
@@ -229,18 +229,73 @@ out center;
 """
 
 
-@login_required
 def home(request):
-    """Main page with map and controls (login required)."""
+    """Main page with map and controls."""
     return render(request, 'heatmap_app/home.html')
 
 
 
 
-@login_required
 def dashboard(request):
-    """Dashboard analytics view (login required)."""
+    """Dashboard analytics view."""
     return render(request, 'heatmap_app/dashboard.html')
+
+
+def login_view(request):
+    """
+    Renders the Supabase-powered authentication page with Sign In & Sign Up.
+    """
+    next_url = request.GET.get('next', reverse('dashboard'))
+    return render(request, 'heatmap_app/login.html', {
+        'next_url': next_url,
+    })
+
+
+def profile_view(request):
+    """
+    Renders the user profile management page.
+    Allows editing full name, login password, avatar, and other profile details.
+    """
+    return render(request, 'heatmap_app/profile.html')
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def log_activity_api(request):
+    """
+    Receives frontend activity events and logs them to the Supabase project DB.
+    """
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, TypeError):
+        return JsonResponse({'success': False, 'message': 'Invalid JSON'}, status=400)
+
+    event_type = data.get('event_type')
+    if not event_type:
+        return JsonResponse({'success': False, 'message': 'event_type is required'}, status=400)
+
+    feature_name = data.get('feature_name', '')
+    user_id = data.get('user_id')
+    user_email = data.get('user_email')
+    details = data.get('details', {})
+
+    # Extract client IP
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip_address = x_forwarded_for.split(',')[0].strip()
+    else:
+        ip_address = request.META.get('REMOTE_ADDR')
+
+    from .supabase_service import log_activity_to_supabase
+    result = log_activity_to_supabase(
+        event_type=event_type,
+        feature_name=feature_name,
+        user_id=user_id,
+        user_email=user_email,
+        details=details,
+        ip_address=ip_address
+    )
+    return JsonResponse(result)
 
 
 @csrf_exempt
@@ -304,20 +359,34 @@ def chat_message(request):
     })
 
 def submit_form(request):
-    """Handle form submission"""
+    """Handle form submission — validate fields and return success without DB."""
     if request.method == 'POST':
-        form = BusinessUserForm(request.POST)
-        if form.is_valid():
-            form.save()
-            return JsonResponse({'success': True, 'message': 'Form submitted successfully!'})
-        else:
-            # Flatten errors into a readable message
-            error_parts = []
-            for field, errs in form.errors.items():
-                label = field.replace('_', ' ').title()
-                error_parts.append(f"{label}: {', '.join(errs)}")
-            error_msg = ' | '.join(error_parts) if error_parts else 'Please check the form fields.'
-            return JsonResponse({'success': False, 'message': error_msg, 'errors': form.errors})
+        name = request.POST.get('name', '').strip()
+        email = request.POST.get('email', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        business_type = request.POST.get('business_type', '').strip()
+        crowd_intensity = request.POST.get('crowd_intensity', '').strip()
+
+        errors = []
+        if not name:
+            errors.append('Name is required.')
+        if not email or '@' not in email:
+            errors.append('A valid email is required.')
+        if not phone:
+            errors.append('Phone is required.')
+        if not business_type:
+            errors.append('Business type is required.')
+        if crowd_intensity not in ('high', 'medium', 'low'):
+            errors.append('Please select a crowd intensity.')
+
+        if errors:
+            return JsonResponse({'success': False, 'message': ' | '.join(errors)})
+
+        return JsonResponse({
+            'success': True,
+            'message': f'Thank you, {name}! Your business inquiry has been received.',
+        })
+
     return JsonResponse({'success': False, 'message': 'Invalid request method'})
 
 @csrf_exempt

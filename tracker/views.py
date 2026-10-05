@@ -229,9 +229,8 @@ out center;
 """
 
 
-@login_required
 def home(request):
-    """Main page with map and controls (login required)."""
+    """Main page with map and controls."""
     return render(request, 'heatmap_app/home.html')
 
 def contact_us(request):
@@ -250,9 +249,8 @@ def contact_us(request):
     return render(request, 'heatmap_app/contact.html', {'form': form})
 
 
-@login_required
 def dashboard(request):
-    """Dashboard analytics view (login required)."""
+    """Dashboard analytics view."""
     return render(request, 'heatmap_app/dashboard.html')
 
 

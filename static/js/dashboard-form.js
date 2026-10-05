@@ -131,6 +131,16 @@ function initDashboardStartupForm() {
                         });
                         const matchData = await matchRes.json();
 
+                        if (window.logSupabaseActivity) {
+                            window.logSupabaseActivity('startup_form_submitted', 'Startup Form', {
+                                business_type: businessType,
+                                crowd_intensity: crowdIntensity,
+                                latitude: lat,
+                                longitude: lon,
+                                matches_count: (matchData.matches || []).length
+                            });
+                        }
+
                         if (matchData.success && matchData.matches && matchData.matches.length > 0) {
                             // Delay briefly for user to read success message, then redirect to Map
                             setTimeout(async () => {

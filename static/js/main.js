@@ -3833,23 +3833,26 @@ let dashboardMap = null;
 
 function initDashboardInteractions() {
     const showMapBtn = document.getElementById('btn-show-map');
-    const backToDashboardBtn = document.getElementById('btn-back-to-dashboard');
-    const launchpad = document.getElementById('dashboard-launchpad');
-    const dynamicMapContainer = document.getElementById('dynamic-map-container');
-
     if (showMapBtn) {
         showMapBtn.addEventListener('click', () => {
-            if (launchpad) launchpad.classList.add('d-none');
-            if (!isBusinessRecommendationsMode()) {
-                const aiPanel = document.getElementById('business-intelligence-panel');
-                if (aiPanel) aiPanel.classList.add('d-none');
-            }
-            if (dynamicMapContainer) {
-                dynamicMapContainer.classList.remove('d-none');
-                initDynamicDashboardMap();
-                if (dashboardMap) {
-                    setTimeout(() => dashboardMap.invalidateSize(), 150);
+            const openMap = () => {
+                if (launchpad) launchpad.classList.add('d-none');
+                if (!isBusinessRecommendationsMode()) {
+                    const aiPanel = document.getElementById('business-intelligence-panel');
+                    if (aiPanel) aiPanel.classList.add('d-none');
                 }
+                if (dynamicMapContainer) {
+                    dynamicMapContainer.classList.remove('d-none');
+                    initDynamicDashboardMap();
+                    if (dashboardMap) {
+                        setTimeout(() => dashboardMap.invalidateSize(), 150);
+                    }
+                }
+            };
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('Live Crowd Heatmap', openMap);
+            } else {
+                openMap();
             }
         });
     }
@@ -3857,16 +3860,46 @@ function initDashboardInteractions() {
     // AI Recommender Launchpad Card
     const showAiBtn = document.getElementById('btn-show-ai-recommender');
     if (showAiBtn) {
-        showAiBtn.addEventListener('click', async () => {
-            await openDashboardDataOnlyMode('ai');
+        showAiBtn.addEventListener('click', () => {
+            const openAi = async () => {
+                await openDashboardDataOnlyMode('ai');
+            };
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('AI Business Recommender', openAi);
+            } else {
+                openAi();
+            }
         });
     }
 
-    // Business Flashcards Launchpad Card
+    // Business Flashcards Launchpad Card (Revenue Intelligence)
     const showFlashBtn = document.getElementById('btn-show-flashcards');
     if (showFlashBtn) {
-        showFlashBtn.addEventListener('click', async () => {
-            await openDashboardDataOnlyMode('recs');
+        showFlashBtn.addEventListener('click', () => {
+            const openFlash = async () => {
+                await openDashboardDataOnlyMode('recs');
+            };
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('Revenue Intelligence', openFlash);
+            } else {
+                openFlash();
+            }
+        });
+    }
+
+    // Feasibility Engine Launchpad Card
+    const showFeasibilityBtn = document.getElementById('btn-show-feasibility');
+    if (showFeasibilityBtn) {
+        showFeasibilityBtn.addEventListener('click', () => {
+            const openFeasibility = () => {
+                const sidebarLink = document.getElementById('sidebar-startup-form-link');
+                if (sidebarLink) sidebarLink.click();
+            };
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('Feasibility Engine', openFeasibility);
+            } else {
+                openFeasibility();
+            }
         });
     }
 
@@ -3875,8 +3908,16 @@ function initDashboardInteractions() {
         const btn = document.getElementById(id);
         if (btn) {
             btn.addEventListener('click', () => {
-                const primaryMapBtn = document.getElementById('btn-show-map');
-                if (primaryMapBtn) primaryMapBtn.click();
+                const featName = id === 'btn-show-map-3' ? 'Popular Places Radar' : 'Live Heatmap Tile';
+                if (window.requireSupabaseAuth) {
+                    window.requireSupabaseAuth(featName, () => {
+                        const primaryMapBtn = document.getElementById('btn-show-map');
+                        if (primaryMapBtn) primaryMapBtn.click();
+                    });
+                } else {
+                    const primaryMapBtn = document.getElementById('btn-show-map');
+                    if (primaryMapBtn) primaryMapBtn.click();
+                }
             });
         }
     });
@@ -3884,8 +3925,14 @@ function initDashboardInteractions() {
     // Feature showcase tile: extra AI recommender
     const showAiBtn2 = document.getElementById('btn-show-ai-recommender-2');
     if (showAiBtn2) {
-        showAiBtn2.addEventListener('click', async () => {
-            await openDashboardDataOnlyMode('ai');
+        showAiBtn2.addEventListener('click', () => {
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('AI Business Recommender', async () => {
+                    await openDashboardDataOnlyMode('ai');
+                });
+            } else {
+                openDashboardDataOnlyMode('ai');
+            }
         });
     }
 
@@ -3893,8 +3940,46 @@ function initDashboardInteractions() {
     const showStartupFromLaunchpad = document.getElementById('btn-show-startup-form-from-launchpad');
     if (showStartupFromLaunchpad) {
         showStartupFromLaunchpad.addEventListener('click', () => {
-            const sidebarLink = document.getElementById('sidebar-startup-form-link');
-            if (sidebarLink) sidebarLink.click();
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('Startup Form & Feasibility', () => {
+                    const sidebarLink = document.getElementById('sidebar-startup-form-link');
+                    if (sidebarLink) sidebarLink.click();
+                });
+            } else {
+                const sidebarLink = document.getElementById('sidebar-startup-form-link');
+                if (sidebarLink) sidebarLink.click();
+            }
+        });
+    }
+
+    // Sidebar navigation auth gates
+    const sidebarHeatmapLink = document.getElementById('sidebar-heatmap-link');
+    if (sidebarHeatmapLink) {
+        sidebarHeatmapLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('Heatmap Analytics', () => {
+                    const primaryMapBtn = document.getElementById('btn-show-map');
+                    if (primaryMapBtn) primaryMapBtn.click();
+                });
+            } else {
+                const primaryMapBtn = document.getElementById('btn-show-map');
+                if (primaryMapBtn) primaryMapBtn.click();
+            }
+        });
+    }
+
+    const sidebarAiLink = document.getElementById('sidebar-ai-link');
+    if (sidebarAiLink) {
+        sidebarAiLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('Business Recommendations', async () => {
+                    await openDashboardDataOnlyMode('ai');
+                });
+            } else {
+                openDashboardDataOnlyMode('ai');
+            }
         });
     }
 
@@ -3908,62 +3993,69 @@ function initDashboardInteractions() {
             e.preventDefault();
             console.log('Sidebar startup form link clicked');
 
-            // Hide other sections
-            const launchpad = document.getElementById('dashboard-launchpad');
-            if (launchpad) launchpad.classList.add('d-none');
-            const dynamicMapContainer = document.getElementById('dynamic-map-container');
-            if (dynamicMapContainer) dynamicMapContainer.classList.add('d-none');
+            const openStartupForm = () => {
+                // Hide other sections
+                const launchpad = document.getElementById('dashboard-launchpad');
+                if (launchpad) launchpad.classList.add('d-none');
+                const dynamicMapContainer = document.getElementById('dynamic-map-container');
+                if (dynamicMapContainer) dynamicMapContainer.classList.add('d-none');
 
-            // Hide other panels inside analytics section (but keep the section visible for the form)
-            const popularPanel = document.getElementById('popular-places-panel');
-            if (popularPanel) popularPanel.classList.add('d-none');
-            const intelligencePanel = document.getElementById('business-intelligence-panel');
-            if (intelligencePanel) intelligencePanel.classList.add('d-none');
+                // Hide other panels inside analytics section (but keep the section visible for the form)
+                const popularPanel = document.getElementById('popular-places-panel');
+                if (popularPanel) popularPanel.classList.add('d-none');
+                const intelligencePanel = document.getElementById('business-intelligence-panel');
+                if (intelligencePanel) intelligencePanel.classList.add('d-none');
 
-            // Hide the business-recommendations section explicitly
-            const businessRecsSection = document.querySelector('.business-recommendations-section');
-            if (businessRecsSection) businessRecsSection.classList.add('d-none');
+                // Hide the business-recommendations section explicitly
+                const businessRecsSection = document.querySelector('.business-recommendations-section');
+                if (businessRecsSection) businessRecsSection.classList.add('d-none');
 
-            // Hide global layout elements that waste space
-            const bgAnimation = document.getElementById('bg-animation');
-            if (bgAnimation) bgAnimation.style.display = 'none';
+                // Hide global layout elements that waste space
+                const bgAnimation = document.getElementById('bg-animation');
+                if (bgAnimation) bgAnimation.style.display = 'none';
 
-            // Also hide the business-recommendations section (row containing Top 5 cards)
-            document.querySelectorAll('.business-recs-section, [data-section="business-recs"]').forEach(el => el.classList.add('d-none'));
-            document.querySelectorAll('.col-12 .dashboard-analytics-panel:not(#popular-places-panel):not(#business-intelligence-panel)').forEach(el => el.classList.add('d-none'));
+                // Also hide the business-recommendations section (row containing Top 5 cards)
+                document.querySelectorAll('.business-recs-section, [data-section="business-recs"]').forEach(el => el.classList.add('d-none'));
+                document.querySelectorAll('.col-12 .dashboard-analytics-panel:not(#popular-places-panel):not(#business-intelligence-panel)').forEach(el => el.classList.add('d-none'));
 
-            // Ensure analytics section (parent container) is visible
-            const analyticsSection = document.getElementById('dashboard-analytics-section');
-            if (analyticsSection) {
-                analyticsSection.classList.remove('d-none');
-                analyticsSection.style.display = 'block';
-            }
+                // Ensure analytics section (parent container) is visible
+                const analyticsSection = document.getElementById('dashboard-analytics-section');
+                if (analyticsSection) {
+                    analyticsSection.classList.remove('d-none');
+                    analyticsSection.style.display = 'block';
+                }
 
-            // Show startup form
-            const startupFormSection = document.getElementById('dashboard-startup-form-section');
-            console.log('Startup form section found:', startupFormSection);
-            if (startupFormSection) {
-                startupFormSection.classList.remove('d-none');
-                startupFormSection.style.opacity = '1';
-                startupFormSection.style.height = 'auto';
-                startupFormSection.style.visibility = 'visible';
-                startupFormSection.style.overflow = 'visible';
-                startupFormSection.style.display = 'block';
-                console.log('Startup form section shown');
-                // Scroll to the form
-                setTimeout(() => startupFormSection.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-                // Initialize form functionality
-                initDashboardStartupForm();
+                // Show startup form
+                const startupFormSection = document.getElementById('dashboard-startup-form-section');
+                console.log('Startup form section found:', startupFormSection);
+                if (startupFormSection) {
+                    startupFormSection.classList.remove('d-none');
+                    startupFormSection.style.opacity = '1';
+                    startupFormSection.style.height = 'auto';
+                    startupFormSection.style.visibility = 'visible';
+                    startupFormSection.style.overflow = 'visible';
+                    startupFormSection.style.display = 'block';
+                    console.log('Startup form section shown');
+                    // Scroll to the form
+                    setTimeout(() => startupFormSection.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+                    // Initialize form functionality
+                    initDashboardStartupForm();
+                } else {
+                    console.error('Startup form section not found!');
+                }
+
+                // Update active state in sidebar
+                document.querySelectorAll('.sidebar-link').forEach(link => {
+                    link.classList.remove('active');
+                });
+                sidebarStartupFormLink.classList.add('active');
+            };
+
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('Startup Form', openStartupForm);
             } else {
-                console.error('Startup form section not found!');
+                openStartupForm();
             }
-
-
-            // Update active state in sidebar
-            document.querySelectorAll('.sidebar-link').forEach(link => {
-                link.classList.remove('active');
-            });
-            sidebarStartupFormLink.classList.add('active');
         });
     } else {
         console.error('Sidebar startup form link not found!');
@@ -4253,11 +4345,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auto-init if we are on dashboard and hash is #map or auto_map param is present
     const urlParams = new URLSearchParams(window.location.search);
     const triggerMap = (window.location.hash === '#map' || urlParams.get('auto_map') === 'true');
+    const triggerAi = (urlParams.get('ai') === 'true');
 
     if (triggerMap && document.getElementById('btn-show-map')) {
         setTimeout(() => {
-            document.getElementById('btn-show-map').click();
-        }, 100);
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('Live Crowd Heatmap', () => {
+                    document.getElementById('btn-show-map').click();
+                });
+            } else {
+                document.getElementById('btn-show-map').click();
+            }
+        }, 200);
+    } else if (triggerAi && document.getElementById('btn-show-ai-recommender')) {
+        setTimeout(() => {
+            if (window.requireSupabaseAuth) {
+                window.requireSupabaseAuth('AI Business Recommender', () => {
+                    document.getElementById('btn-show-ai-recommender').click();
+                });
+            } else {
+                document.getElementById('btn-show-ai-recommender').click();
+            }
+        }, 200);
     }
 
     const stored = getSelectedLocation();

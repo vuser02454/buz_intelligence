@@ -1,0 +1,837 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Sign In | Supabase Auth - Business Intelligence{% endblock %}
+
+{% block extra_css %}
+<style>
+    .auth-page-container {
+        min-height: calc(100vh - 140px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 40px 20px;
+        position: relative;
+        z-index: 2;
+    }
+
+    .auth-card {
+        background: rgba(13, 17, 23, 0.85);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 20px;
+        box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(79, 70, 229, 0.15);
+        width: 100%;
+        max-width: 480px;
+        overflow: hidden;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .auth-card-header {
+        padding: 32px 32px 20px 32px;
+        text-align: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        position: relative;
+    }
+
+    .auth-brand-logo-container {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 16px;
+    }
+
+    .auth-brand-logo {
+        width: 84px;
+        height: 84px;
+        border-radius: 20px;
+        object-fit: cover;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4), 0 0 20px rgba(0, 188, 212, 0.25);
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
+    }
+
+    .auth-brand-logo:hover {
+        transform: scale(1.06);
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.5), 0 0 30px rgba(0, 188, 212, 0.4);
+    }
+
+    .auth-card-title {
+        color: #ffffff;
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 6px;
+        letter-spacing: -0.02em;
+    }
+
+    .auth-card-subtitle {
+        color: #94a3b8;
+        font-size: 0.88rem;
+    }
+
+    .supabase-badge-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        background: rgba(62, 207, 142, 0.12);
+        border: 1px solid rgba(62, 207, 142, 0.3);
+        border-radius: 100px;
+        color: #3ecf8e;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-top: 10px;
+    }
+
+    .auth-tabs {
+        display: flex;
+        background: rgba(0, 0, 0, 0.25);
+        padding: 6px;
+        border-radius: 12px;
+        margin: 24px 32px 10px 32px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .auth-tab-btn {
+        flex: 1;
+        padding: 10px 16px;
+        border: none;
+        background: transparent;
+        color: #94a3b8;
+        font-size: 0.9rem;
+        font-weight: 600;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.25s ease;
+    }
+
+    .auth-tab-btn.active {
+        background: rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .auth-card-body {
+        padding: 20px 32px 32px 32px;
+    }
+
+    .auth-input-group {
+        margin-bottom: 18px;
+    }
+
+    .auth-input-group label {
+        display: block;
+        color: #cbd5e1;
+        font-size: 0.82rem;
+        font-weight: 600;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .auth-input-wrapper {
+        position: relative;
+    }
+
+    .auth-input-icon {
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #64748b;
+        font-size: 1rem;
+    }
+
+    .auth-form-input {
+        width: 100%;
+        padding: 12px 14px 12px 42px;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 10px;
+        color: #ffffff;
+        font-size: 0.95rem;
+        outline: none;
+        transition: all 0.2s ease;
+    }
+
+    .auth-form-input:focus {
+        border-color: #3ecf8e;
+        box-shadow: 0 0 0 3px rgba(62, 207, 142, 0.2);
+        background: rgba(15, 23, 42, 0.9);
+    }
+
+    .btn-auth-primary {
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #3ecf8e 0%, #10b981 100%);
+        color: #0b0f19;
+        font-weight: 700;
+        font-size: 0.98rem;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all 0.25s ease;
+        box-shadow: 0 6px 20px rgba(62, 207, 142, 0.25);
+    }
+
+    .btn-auth-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 25px rgba(62, 207, 142, 0.4);
+    }
+
+    .btn-auth-primary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .auth-alert {
+        padding: 12px 16px;
+        border-radius: 10px;
+        font-size: 0.86rem;
+        margin-bottom: 18px;
+        display: none;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .auth-alert-error {
+        background: rgba(239, 68, 68, 0.15);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #f87171;
+    }
+
+    .auth-alert-success {
+        background: rgba(16, 185, 129, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        color: #34d399;
+    }
+
+    .auth-footer-help {
+        text-align: center;
+        margin-top: 20px;
+        color: #64748b;
+        font-size: 0.82rem;
+    }
+
+    .auth-footer-help a {
+        color: #3ecf8e;
+        text-decoration: none;
+        font-weight: 600;
+    }
+
+    .auth-footer-help a:hover {
+        text-decoration: underline;
+    }
+
+    .demo-credentials-banner {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px dashed rgba(255, 255, 255, 0.15);
+        border-radius: 10px;
+        padding: 12px;
+        margin-top: 18px;
+        text-align: center;
+    }
+
+    .auth-link-forgot {
+        color: #3ecf8e;
+        font-size: 0.8rem;
+        font-weight: 500;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+
+    .auth-link-forgot:hover {
+        color: #34d399;
+        text-decoration: underline;
+    }
+
+    .auth-back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #94a3b8;
+        font-size: 0.85rem;
+        text-decoration: none;
+        transition: color 0.2s ease;
+        cursor: pointer;
+        background: none;
+        border: none;
+        padding: 0;
+    }
+
+    .auth-back-link:hover {
+        color: #3ecf8e;
+    }
+
+    .forgot-step-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(62, 207, 142, 0.12);
+        border: 1px solid rgba(62, 207, 142, 0.25);
+        color: #3ecf8e;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        margin-bottom: 14px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-page-container">
+    <div class="auth-card">
+        <div class="auth-card-header">
+            <div class="auth-brand-logo-container">
+                <img src="{% static 'img/logo.png' %}" alt="Business Intelligence" class="auth-brand-logo">
+            </div>
+            <h2 class="auth-card-title">Business Intelligence</h2>
+            <p class="auth-card-subtitle">Connect your account to access real-time heatmap intelligence</p>
+        </div>
+
+        <!-- Alert messages container -->
+        <div style="padding: 0 32px; margin-top: 16px;">
+            <div id="auth-alert-box" class="auth-alert">
+                <i class="fas fa-info-circle"></i>
+                <span id="auth-alert-text"></span>
+            </div>
+        </div>
+
+        <!-- Tab switches -->
+        <div class="auth-tabs">
+            <button type="button" class="auth-tab-btn active" id="tab-btn-signin" onclick="switchAuthTab('signin')">
+                <i class="fas fa-sign-in-alt me-1"></i> Sign In
+            </button>
+            <button type="button" class="auth-tab-btn" id="tab-btn-signup" onclick="switchAuthTab('signup')">
+                <i class="fas fa-user-plus me-1"></i> Create Account
+            </button>
+        </div>
+
+        <div class="auth-card-body">
+            <!-- SIGN IN FORM -->
+            <form id="form-signin">
+                <div class="auth-input-group">
+                    <label for="signin-email">Email Address</label>
+                    <div class="auth-input-wrapper">
+                        <i class="fas fa-envelope auth-input-icon"></i>
+                        <input type="email" id="signin-email" class="auth-form-input" placeholder="name@example.com" required autocomplete="email">
+                    </div>
+                </div>
+
+                <div class="auth-input-group">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label for="signin-password" style="margin-bottom: 0;">Password</label>
+                        <a href="javascript:void(0)" onclick="switchAuthTab('forgot')" class="auth-link-forgot">Forgot Password?</a>
+                    </div>
+                    <div class="auth-input-wrapper">
+                        <i class="fas fa-lock auth-input-icon"></i>
+                        <input type="password" id="signin-password" class="auth-form-input" placeholder="••••••••" required autocomplete="current-password">
+                    </div>
+                </div>
+
+                <button type="submit" id="btn-submit-signin" class="btn-auth-primary">
+                    <i class="fas fa-arrow-right"></i> Sign In to Dashboard
+                </button>
+            </form>
+
+            <!-- SIGN UP FORM -->
+            <form id="form-signup" style="display: none;">
+                <div class="auth-input-group">
+                    <label for="signup-name">Full Name</label>
+                    <div class="auth-input-wrapper">
+                        <i class="fas fa-user auth-input-icon"></i>
+                        <input type="text" id="signup-name" class="auth-form-input" placeholder="Alex Morgan" required autocomplete="name">
+                    </div>
+                </div>
+
+                <div class="auth-input-group">
+                    <label for="signup-email">Email Address</label>
+                    <div class="auth-input-wrapper">
+                        <i class="fas fa-envelope auth-input-icon"></i>
+                        <input type="email" id="signup-email" class="auth-form-input" placeholder="name@example.com" required autocomplete="email">
+                    </div>
+                </div>
+
+                <div class="auth-input-group">
+                    <label for="signup-password">Password (min 6 characters)</label>
+                    <div class="auth-input-wrapper">
+                        <i class="fas fa-lock auth-input-icon"></i>
+                        <input type="password" id="signup-password" class="auth-form-input" placeholder="••••••••" minlength="6" required autocomplete="new-password">
+                    </div>
+                </div>
+
+                <button type="submit" id="btn-submit-signup" class="btn-auth-primary">
+                    <i class="fas fa-user-plus"></i> Create Account
+                </button>
+            </form>
+
+            <!-- FORGOT / RESET PASSWORD CONTAINER -->
+            <div id="form-forgot" style="display: none;">
+                <!-- 1. Request Reset Link Form -->
+                <form id="form-reset-request">
+                    <div class="mb-3 text-start">
+                        <span class="forgot-step-badge">
+                            <i class="fas fa-key"></i> Password Recovery
+                        </span>
+                        <h4 style="color: #ffffff; font-size: 1.15rem; font-weight: 700; margin-bottom: 6px;">Forgot Password</h4>
+                        <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 0; line-height: 1.4;">
+                            Enter your registered email address and we'll send you an email link to verify and create a new password.
+                        </p>
+                    </div>
+
+                    <div class="auth-input-group">
+                        <label for="forgot-email">Account Email</label>
+                        <div class="auth-input-wrapper">
+                            <i class="fas fa-envelope auth-input-icon"></i>
+                            <input type="email" id="forgot-email" class="auth-form-input" placeholder="name@example.com" required autocomplete="email">
+                        </div>
+                    </div>
+
+                    <button type="submit" id="btn-forgot-send" class="btn-auth-primary">
+                        <i class="fas fa-paper-plane"></i> Send Password Reset Link
+                    </button>
+
+                    <div style="text-align: center; margin-top: 16px;">
+                        <button type="button" class="auth-back-link" onclick="switchAuthTab('signin')">
+                            <i class="fas fa-arrow-left"></i> Back to Sign In
+                        </button>
+                    </div>
+                </form>
+
+                <!-- 2. Email Sent Confirmation Screen -->
+                <div id="view-reset-sent" style="display: none; text-align: center; padding: 6px 0;">
+                    <div style="width: 60px; height: 60px; border-radius: 50%; background: rgba(62, 207, 142, 0.12); border: 1px solid rgba(62, 207, 142, 0.3); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto;">
+                        <i class="fas fa-envelope-open-text" style="font-size: 1.6rem; color: #3ecf8e;"></i>
+                    </div>
+                    <h4 style="color: #ffffff; font-size: 1.2rem; font-weight: 700; margin-bottom: 8px;">Check Your Email</h4>
+                    <p style="color: #cbd5e1; font-size: 0.88rem; line-height: 1.5; margin-bottom: 12px;">
+                        We sent a password reset link to<br>
+                        <strong id="display-reset-email" style="color: #3ecf8e; word-break: break-all;"></strong>
+                    </p>
+                    <p style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 24px; line-height: 1.4;">
+                        Click the link in the email to verify your request and set a new password. Check your spam folder if it doesn't appear shortly.
+                    </p>
+
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <button type="button" id="btn-resend-link" onclick="resendResetLink()" class="btn-auth-primary" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); color: #ffffff; box-shadow: none;">
+                            <i class="fas fa-redo-alt"></i> Resend Email Link
+                        </button>
+                        <button type="button" class="auth-back-link" style="justify-content: center; margin-top: 6px;" onclick="switchAuthTab('signin')">
+                            <i class="fas fa-arrow-left"></i> Back to Sign In
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 3. Create New Password Form (Opened via Email Verification Link) -->
+                <form id="form-new-password" style="display: none;">
+                    <div class="mb-3 text-start">
+                        <span class="forgot-step-badge">
+                            <i class="fas fa-check-circle"></i> Email Verified
+                        </span>
+                        <h4 style="color: #ffffff; font-size: 1.15rem; font-weight: 700; margin-bottom: 6px;">Create New Password</h4>
+                        <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 0; line-height: 1.4;">
+                            Your email link has been verified. Enter your new password below to update your account.
+                        </p>
+                    </div>
+
+                    <div class="auth-input-group">
+                        <label for="new-password-input">New Password (min 6 characters)</label>
+                        <div class="auth-input-wrapper">
+                            <i class="fas fa-lock auth-input-icon"></i>
+                            <input type="password" id="new-password-input" class="auth-form-input" placeholder="••••••••" minlength="6" required autocomplete="new-password">
+                        </div>
+                    </div>
+
+                    <div class="auth-input-group">
+                        <label for="confirm-password-input">Confirm New Password</label>
+                        <div class="auth-input-wrapper">
+                            <i class="fas fa-check-double auth-input-icon"></i>
+                            <input type="password" id="confirm-password-input" class="auth-form-input" placeholder="••••••••" minlength="6" required autocomplete="new-password">
+                        </div>
+                    </div>
+
+                    <button type="submit" id="btn-save-new-password" class="btn-auth-primary">
+                        <i class="fas fa-save"></i> Save New Password
+                    </button>
+
+                    <div style="text-align: center; margin-top: 16px;">
+                        <button type="button" class="auth-back-link" onclick="switchAuthTab('signin')">
+                            Cancel & Back to Sign In
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="auth-footer-help">
+                <a href="{% url 'dashboard' %}"><i class="fas fa-arrow-left me-1"></i> Continue as Guest to Dashboard</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Supabase JS Client CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+    // Supabase Configuration from Django Template Context
+    window.SUPABASE_CONFIG = {
+        url: '{{ SUPABASE_URL|default:"https://ijsfmdgysmwovaighumv.supabase.co" }}',
+        key: '{{ SUPABASE_ANON_KEY|default:"sb_publishable_EdW1JxXZSkEA1uV4Yl4eIg_F9dvq-2h" }}'
+    };
+</script>
+<script src="{% static 'js/supabase-auth.js' %}"></script>
+<script>
+    const nextUrl = "{{ next_url|default:'/dashboard/' }}";
+    let currentResetEmail = '';
+
+    function showAlert(message, type = 'error') {
+        const alertBox = document.getElementById('auth-alert-box');
+        const alertText = document.getElementById('auth-alert-text');
+        alertBox.className = `auth-alert auth-alert-${type}`;
+        alertText.textContent = message;
+        alertBox.style.display = 'flex';
+    }
+
+    function hideAlert() {
+        const alertBox = document.getElementById('auth-alert-box');
+        alertBox.style.display = 'none';
+    }
+
+    function switchAuthTab(tab) {
+        hideAlert();
+        const tabContainer = document.querySelector('.auth-tabs');
+        const tabSignIn = document.getElementById('tab-btn-signin');
+        const tabSignUp = document.getElementById('tab-btn-signup');
+        const formSignIn = document.getElementById('form-signin');
+        const formSignUp = document.getElementById('form-signup');
+        const formForgot = document.getElementById('form-forgot');
+        const formResetRequest = document.getElementById('form-reset-request');
+        const viewResetSent = document.getElementById('view-reset-sent');
+        const formNewPassword = document.getElementById('form-new-password');
+
+        if (tab === 'signin') {
+            if (tabContainer) tabContainer.style.display = 'flex';
+            tabSignIn.classList.add('active');
+            tabSignUp.classList.remove('active');
+            formSignIn.style.display = 'block';
+            formSignUp.style.display = 'none';
+            formForgot.style.display = 'none';
+        } else if (tab === 'signup') {
+            if (tabContainer) tabContainer.style.display = 'flex';
+            tabSignUp.classList.add('active');
+            tabSignIn.classList.remove('active');
+            formSignUp.style.display = 'block';
+            formSignIn.style.display = 'none';
+            formForgot.style.display = 'none';
+        } else if (tab === 'forgot') {
+            if (tabContainer) tabContainer.style.display = 'none';
+            formSignIn.style.display = 'none';
+            formSignUp.style.display = 'none';
+            formForgot.style.display = 'block';
+            formResetRequest.style.display = 'block';
+            viewResetSent.style.display = 'none';
+            formNewPassword.style.display = 'none';
+
+            // Prefill email if entered in sign in form
+            const signinEmail = document.getElementById('signin-email').value.trim();
+            if (signinEmail && !document.getElementById('forgot-email').value) {
+                document.getElementById('forgot-email').value = signinEmail;
+            }
+        } else if (tab === 'new-password') {
+            if (tabContainer) tabContainer.style.display = 'none';
+            formSignIn.style.display = 'none';
+            formSignUp.style.display = 'none';
+            formForgot.style.display = 'block';
+            formResetRequest.style.display = 'none';
+            viewResetSent.style.display = 'none';
+            formNewPassword.style.display = 'block';
+            const passInput = document.getElementById('new-password-input');
+            if (passInput) passInput.focus();
+        }
+    }
+
+    async function sendResetLink(email, isResend = false) {
+        const client = window.SupabaseAuth.init();
+        if (!client) {
+            showAlert('Authentication service is initializing. Please try again.');
+            return false;
+        }
+
+        const btnSend = document.getElementById('btn-forgot-send');
+        if (!isResend && btnSend) {
+            btnSend.disabled = true;
+            btnSend.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending Link...';
+        }
+
+        try {
+            // Email link will redirect back to this login page with recovery session
+            const redirectUrl = window.location.origin + '/login/';
+            const { data, error } = await client.auth.resetPasswordForEmail(email, {
+                redirectTo: redirectUrl
+            });
+
+            if (error) {
+                showAlert(error.message || 'Unable to send password reset email. Please check your address.');
+                if (!isResend && btnSend) {
+                    btnSend.disabled = false;
+                    btnSend.innerHTML = '<i class="fas fa-paper-plane"></i> Send Password Reset Link';
+                }
+                return false;
+            }
+
+            // Success: show sent confirmation view
+            currentResetEmail = email;
+            document.getElementById('display-reset-email').textContent = email;
+            document.getElementById('form-reset-request').style.display = 'none';
+            document.getElementById('view-reset-sent').style.display = 'block';
+            hideAlert();
+
+            if (!isResend && btnSend) {
+                btnSend.disabled = false;
+                btnSend.innerHTML = '<i class="fas fa-paper-plane"></i> Send Password Reset Link';
+            }
+            return true;
+        } catch (err) {
+            showAlert(err.message || 'Error sending password reset email.');
+            if (!isResend && btnSend) {
+                btnSend.disabled = false;
+                btnSend.innerHTML = '<i class="fas fa-paper-plane"></i> Send Password Reset Link';
+            }
+            return false;
+        }
+    }
+
+    async function resendResetLink() {
+        if (!currentResetEmail) {
+            currentResetEmail = document.getElementById('forgot-email').value.trim();
+        }
+        if (!currentResetEmail) {
+            switchAuthTab('forgot');
+            return;
+        }
+
+        const btnResend = document.getElementById('btn-resend-link');
+        btnResend.disabled = true;
+        btnResend.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Resending...';
+
+        await sendResetLink(currentResetEmail, true);
+
+        let countdown = 30;
+        btnResend.disabled = true;
+        const timer = setInterval(() => {
+            if (countdown <= 0) {
+                clearInterval(timer);
+                btnResend.disabled = false;
+                btnResend.innerHTML = '<i class="fas fa-redo-alt"></i> Resend Email Link';
+            } else {
+                btnResend.innerHTML = `<i class="fas fa-clock me-1"></i> Resend in ${countdown}s`;
+                countdown--;
+            }
+        }, 1000);
+    }
+
+    function fillDemoCredentials() {
+        document.getElementById('signin-email').value = 'test@example.com';
+        document.getElementById('signin-password').value = 'Password123!';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const client = window.SupabaseAuth.init();
+
+        // Check if user opened page from a password recovery link
+        const hash = window.location.hash || '';
+        const search = window.location.search || '';
+        const isRecoveryUrl = hash.includes('type=recovery') || search.includes('type=recovery');
+
+        if (isRecoveryUrl) {
+            switchAuthTab('new-password');
+            showAlert('Password reset link verified! Please enter your new password below.', 'success');
+        }
+
+        // Listen for Supabase password recovery auth event
+        if (client) {
+            client.auth.onAuthStateChange(async (event, session) => {
+                if (event === 'PASSWORD_RECOVERY') {
+                    switchAuthTab('new-password');
+                    showAlert('Password reset link verified! Please enter your new password below.', 'success');
+                }
+            });
+
+            // Check if already authenticated (skip if password recovery is in progress)
+            if (!isRecoveryUrl) {
+                client.auth.getSession().then(({ data }) => {
+                    if (data && data.session) {
+                        showAlert('You are already signed in. Redirecting to dashboard...', 'success');
+                        setTimeout(() => {
+                            window.location.href = nextUrl;
+                        }, 800);
+                    }
+                });
+            }
+        }
+
+        // Handle Sign In Submission
+        const formSignIn = document.getElementById('form-signin');
+        const btnSignIn = document.getElementById('btn-submit-signin');
+
+        formSignIn.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideAlert();
+
+            const email = document.getElementById('signin-email').value.trim();
+            const password = document.getElementById('signin-password').value;
+
+            btnSignIn.disabled = true;
+            btnSignIn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Authenticating...';
+
+            try {
+                const { data, error } = await client.auth.signInWithPassword({ email, password });
+                if (error) {
+                    showAlert(error.message || 'Invalid email or password.');
+                    btnSignIn.disabled = false;
+                    btnSignIn.innerHTML = '<i class="fas fa-arrow-right"></i> Sign In to Dashboard';
+                } else {
+                    showAlert('Sign in successful! Connecting to Supabase project DB...', 'success');
+                    await window.SupabaseAuth.logActivity('auth_login', 'Login Page', { email: data.user.email });
+                    setTimeout(() => {
+                        window.location.href = nextUrl;
+                    }, 600);
+                }
+            } catch (err) {
+                showAlert(err.message || 'An error occurred during authentication.');
+                btnSignIn.disabled = false;
+                btnSignIn.innerHTML = '<i class="fas fa-arrow-right"></i> Sign In to Dashboard';
+            }
+        });
+
+        // Handle Sign Up Submission
+        const formSignUp = document.getElementById('form-signup');
+        const btnSignUp = document.getElementById('btn-submit-signup');
+
+        formSignUp.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideAlert();
+
+            const fullName = document.getElementById('signup-name').value.trim();
+            const email = document.getElementById('signup-email').value.trim();
+            const password = document.getElementById('signup-password').value;
+
+            btnSignUp.disabled = true;
+            btnSignUp.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Account...';
+
+            try {
+                const { data, error } = await client.auth.signUp({
+                    email,
+                    password,
+                    options: {
+                        data: { full_name: fullName }
+                    }
+                });
+
+                if (error) {
+                    showAlert(error.message || 'Unable to register account.');
+                    btnSignUp.disabled = false;
+                    btnSignUp.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
+                } else {
+                    await window.SupabaseAuth.logActivity('auth_signup', 'Registration', { email, full_name: fullName });
+                    
+                    if (data.session) {
+                        showAlert('Account created & logged in! Redirecting...', 'success');
+                        setTimeout(() => {
+                            window.location.href = nextUrl;
+                        }, 700);
+                    } else {
+                        showAlert('Account created successfully! Please check your email to confirm or sign in now.', 'success');
+                        setTimeout(() => {
+                            switchAuthTab('signin');
+                            document.getElementById('signin-email').value = email;
+                        }, 1500);
+                    }
+                }
+            } catch (err) {
+                showAlert(err.message || 'Registration failed. Please try again.');
+                btnSignUp.disabled = false;
+                btnSignUp.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
+            }
+        });
+
+        // Handle Request Reset Link Submission
+        const formResetRequest = document.getElementById('form-reset-request');
+        formResetRequest.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideAlert();
+
+            const email = document.getElementById('forgot-email').value.trim();
+            if (!email) {
+                showAlert('Please enter your account email.');
+                return;
+            }
+
+            await sendResetLink(email);
+        });
+
+        // Handle Save New Password Submission (after email link verification)
+        const formNewPassword = document.getElementById('form-new-password');
+        const btnSaveNewPassword = document.getElementById('btn-save-new-password');
+
+        formNewPassword.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideAlert();
+
+            const newPassword = document.getElementById('new-password-input').value;
+            const confirmPassword = document.getElementById('confirm-password-input').value;
+
+            if (newPassword.length < 6) {
+                showAlert('Password must be at least 6 characters long.');
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                showAlert('Passwords do not match. Please verify.');
+                return;
+            }
+
+            btnSaveNewPassword.disabled = true;
+            btnSaveNewPassword.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving Password...';
+
+            try {
+                const { data, error } = await client.auth.updateUser({
+                    password: newPassword
+                });
+
+                if (error) {
+                    showAlert(error.message || 'Failed to update password. Your reset link may have expired.');
+                    btnSaveNewPassword.disabled = false;
+                    btnSaveNewPassword.innerHTML = '<i class="fas fa-save"></i> Save New Password';
+                    return;
+                }
+
+                showAlert('Password updated successfully! Redirecting to dashboard...', 'success');
+                await window.SupabaseAuth.logActivity('auth_password_reset', 'Reset Password Email Verification');
+
+                // Clear the hash in URL
+                if (window.history && window.history.replaceState) {
+                    window.history.replaceState(null, '', window.location.pathname);
+                }
+
+                setTimeout(() => {
+                    window.location.href = nextUrl;
+                }, 1000);
+
+            } catch (err) {
+                showAlert(err.message || 'Failed to update password. Please try again.');
+                btnSaveNewPassword.disabled = false;
+                btnSaveNewPassword.innerHTML = '<i class="fas fa-save"></i> Save New Password';
+            }
+        });
+    });
+</script>
+{% endblock %}

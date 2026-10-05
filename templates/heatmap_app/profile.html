@@ -1,0 +1,802 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}My Profile | Business Intelligence{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ──────────────────────────────────────────
+       Profile Page Layout
+    ────────────────────────────────────────── */
+    .profile-page {
+        min-height: calc(100vh - 140px);
+        padding: 48px 20px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        position: relative;
+        z-index: 2;
+    }
+
+    .profile-wrapper {
+        width: 100%;
+        max-width: 860px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+    }
+
+    /* ──────────────────────────────────────────
+       Back Link / Header
+    ────────────────────────────────────────── */
+    .back-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #64748b;
+        font-size: 0.85rem;
+        font-weight: 500;
+        text-decoration: none;
+        padding: 6px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+        transition: all 0.2s;
+    }
+    .back-btn:hover { color: #e2e8f0; background: rgba(255,255,255,0.08); }
+
+    /* ──────────────────────────────────────────
+       Profile Card
+    ────────────────────────────────────────── */
+    .profile-card {
+        background: rgba(13, 17, 23, 0.85);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    }
+    .profile-card-header {
+        padding: 20px 28px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .card-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        flex-shrink: 0;
+    }
+    .icon-teal   { background: rgba(62,207,142,0.15); color: #3ecf8e; }
+    .icon-blue   { background: rgba(99,179,237,0.15); color: #63b3ed; }
+    .icon-purple { background: rgba(167,139,250,0.15); color: #a78bfa; }
+
+    .profile-card-header h3 {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #e2e8f0;
+        margin: 0;
+    }
+    .profile-card-header .card-desc {
+        font-size: 0.78rem;
+        color: #64748b;
+        margin: 0;
+    }
+    .profile-card-body { padding: 28px; }
+
+    /* ──────────────────────────────────────────
+       Avatar Section
+    ────────────────────────────────────────── */
+    .avatar-section {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+        flex-wrap: wrap;
+        margin-bottom: 28px;
+    }
+    .avatar-container { position: relative; flex-shrink: 0; }
+    .avatar-ring {
+        width: 110px;
+        height: 110px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #3ecf8e, #63b3ed, #a78bfa);
+        padding: 3px;
+        box-shadow: 0 0 30px rgba(62, 207, 142, 0.25);
+    }
+    .avatar-inner {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background: #0d1117;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+    #avatar-preview {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
+        display: none;
+    }
+    #avatar-initials {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #3ecf8e;
+        letter-spacing: -0.05em;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .avatar-edit-btn {
+        position: absolute;
+        bottom: 4px;
+        right: 4px;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #3ecf8e;
+        color: #0d1117;
+        border: none;
+        font-size: 13px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.2s, background 0.2s;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    .avatar-edit-btn:hover { transform: scale(1.12); background: #2ecc71; }
+    #avatar-file-input { display: none; }
+
+    .avatar-meta h4 { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; margin: 0 0 4px; }
+    .avatar-meta .user-email { font-size: 0.85rem; color: #64748b; margin: 0 0 10px; }
+    .verified-badge {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 3px 10px;
+        background: rgba(62,207,142,0.12);
+        border: 1px solid rgba(62,207,142,0.3);
+        border-radius: 50px; color: #3ecf8e;
+        font-size: 0.72rem; font-weight: 600;
+    }
+    .avatar-hint { font-size: 0.74rem; color: #475569; margin-top: 8px; }
+
+    /* ──────────────────────────────────────────
+       Form Fields
+    ────────────────────────────────────────── */
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+    }
+    @media (max-width: 640px) {
+        .form-grid { grid-template-columns: 1fr; }
+        .avatar-section { flex-direction: column; align-items: flex-start; }
+        .profile-stats { grid-template-columns: 1fr 1fr; }
+    }
+    .field-group { display: flex; flex-direction: column; gap: 6px; }
+    .field-group label {
+        font-size: 0.75rem; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        color: #94a3b8;
+    }
+    .field-input-wrap { position: relative; }
+    .field-icon {
+        position: absolute; left: 14px; top: 50%;
+        transform: translateY(-50%);
+        color: #475569; font-size: 0.9rem; pointer-events: none;
+    }
+    .field-input {
+        width: 100%;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px; color: #e2e8f0;
+        font-size: 0.9rem; padding: 11px 14px 11px 40px;
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        font-family: inherit;
+    }
+    .field-input:focus {
+        border-color: rgba(62,207,142,0.5);
+        box-shadow: 0 0 0 3px rgba(62,207,142,0.1);
+    }
+    .field-input::placeholder { color: #334155; }
+    .field-input:disabled { color: #475569; cursor: not-allowed; background: rgba(10,15,25,0.5); }
+    .field-hint { font-size: 0.73rem; color: #475569; margin-top: 2px; }
+    .toggle-password {
+        position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+        background: none; border: none; color: #475569;
+        cursor: pointer; font-size: 0.9rem; padding: 2px;
+        transition: color 0.2s;
+    }
+    .toggle-password:hover { color: #94a3b8; }
+
+    /* ──────────────────────────────────────────
+       Password Strength
+    ────────────────────────────────────────── */
+    .strength-meter { margin-top: 8px; }
+    .strength-bar-track {
+        height: 4px; border-radius: 2px;
+        background: rgba(255,255,255,0.08); overflow: hidden;
+    }
+    .strength-bar-fill {
+        height: 100%; width: 0%; border-radius: 2px;
+        transition: width 0.3s, background 0.3s; background: #ef4444;
+    }
+    .strength-label { font-size: 0.72rem; color: #64748b; margin-top: 4px; }
+
+    /* ──────────────────────────────────────────
+       Alert
+    ────────────────────────────────────────── */
+    .profile-alert {
+        display: none; align-items: center; gap: 10px;
+        padding: 12px 16px; border-radius: 10px;
+        font-size: 0.85rem; font-weight: 500;
+        margin-bottom: 18px; border: 1px solid transparent;
+    }
+    .profile-alert.show { display: flex; }
+    .profile-alert.success { background: rgba(62,207,142,0.1); border-color: rgba(62,207,142,0.3); color: #3ecf8e; }
+    .profile-alert.error   { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #f87171; }
+    .profile-alert.info    { background: rgba(99,179,237,0.1); border-color: rgba(99,179,237,0.3); color: #63b3ed; }
+
+    /* ──────────────────────────────────────────
+       Save Button
+    ────────────────────────────────────────── */
+    .btn-save-profile {
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        background: linear-gradient(135deg, #3ecf8e 0%, #10b981 100%);
+        color: #0d1117; font-weight: 700; font-size: 0.95rem;
+        padding: 13px 32px; border: none; border-radius: 12px;
+        cursor: pointer;
+        transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s;
+        box-shadow: 0 6px 20px rgba(62,207,142,0.3);
+        letter-spacing: 0.02em;
+    }
+    .btn-save-profile:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(62,207,142,0.4); }
+    .btn-save-profile:active { transform: scale(0.98); }
+    .btn-save-profile:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    /* ──────────────────────────────────────────
+       Stats Row
+    ────────────────────────────────────────── */
+    .profile-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+    .stat-card {
+        background: rgba(13,17,23,0.85);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 14px; padding: 18px 20px; text-align: center;
+        backdrop-filter: blur(10px);
+        transition: border-color 0.2s, transform 0.2s;
+    }
+    .stat-card:hover { border-color: rgba(62,207,142,0.25); transform: translateY(-2px); }
+    .stat-value { font-size: 1.3rem; font-weight: 700; color: #3ecf8e; line-height: 1; }
+    .stat-label { font-size: 0.73rem; color: #64748b; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ──────────────────────────────────────────
+       Not-signed-in gate
+    ────────────────────────────────────────── */
+    .profile-gate { text-align: center; padding: 64px 32px; }
+    .gate-icon {
+        width: 70px; height: 70px; border-radius: 20px;
+        background: rgba(62,207,142,0.12); color: #3ecf8e; font-size: 28px;
+        display: inline-flex; align-items: center; justify-content: center;
+        margin-bottom: 20px;
+    }
+    .profile-gate h2 { color: #f1f5f9; font-size: 1.35rem; font-weight: 700; margin-bottom: 8px; }
+    .profile-gate p  { color: #64748b; font-size: 0.9rem; margin-bottom: 24px; }
+    .btn-go-login {
+        display: inline-flex; align-items: center; gap: 8px;
+        background: linear-gradient(135deg, #3ecf8e 0%, #10b981 100%);
+        color: #0d1117; font-weight: 700; font-size: 0.9rem;
+        padding: 11px 24px; border-radius: 10px; text-decoration: none;
+        transition: transform 0.2s, box-shadow 0.2s;
+        box-shadow: 0 6px 20px rgba(62,207,142,0.3);
+    }
+    .btn-go-login:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(62,207,142,0.4); color: #0d1117; }
+
+    /* ──────────────────────────────────────────
+       Sign Out / Danger Zone
+    ────────────────────────────────────────── */
+    .danger-zone { border: 1px solid rgba(239,68,68,0.25); }
+    .danger-zone .profile-card-header { border-bottom-color: rgba(239,68,68,0.15); }
+    .btn-signout {
+        display: inline-flex; align-items: center; gap: 8px;
+        background: rgba(239,68,68,0.1); color: #f87171;
+        border: 1px solid rgba(239,68,68,0.3);
+        font-size: 0.88rem; font-weight: 600;
+        padding: 10px 20px; border-radius: 10px;
+        cursor: pointer; transition: background 0.2s, transform 0.2s;
+    }
+    .btn-signout:hover { background: rgba(239,68,68,0.2); transform: translateY(-1px); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="profile-page">
+    <div class="profile-wrapper">
+
+        <!-- Page Header -->
+        <div>
+            <a href="{% url 'dashboard' %}" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
+            </a>
+            <h1 style="font-size:1.6rem;font-weight:700;color:#f1f5f9;margin:14px 0 2px;letter-spacing:-0.02em;">
+                <i class="fas fa-user-circle me-2" style="color:#3ecf8e;font-size:1.4rem;"></i>My Profile
+            </h1>
+            <p style="color:#64748b;font-size:0.85rem;margin:0;">Manage your account details, security, and preferences.</p>
+        </div>
+
+        <!-- ── NOT SIGNED IN GATE ── -->
+        <div class="profile-card" id="profile-gate-card" style="display:none;">
+            <div class="profile-gate">
+                <div class="gate-icon"><i class="fas fa-lock"></i></div>
+                <h2>Sign In Required</h2>
+                <p>You need to be signed in to view or edit your profile.</p>
+                <a href="{% url 'login' %}?next=/profile/" class="btn-go-login">
+                    <i class="fas fa-sign-in-alt"></i> Sign In to Continue
+                </a>
+            </div>
+        </div>
+
+        <!-- ── SIGNED IN: Profile Content ── -->
+        <div id="profile-content" style="display:none;flex-direction:column;gap:24px;">
+
+            <!-- CARD 1: Personal Info + Avatar -->
+            <div class="profile-card">
+                <div class="profile-card-header">
+                    <div class="card-icon icon-teal"><i class="fas fa-user"></i></div>
+                    <div>
+                        <h3>Personal Information</h3>
+                        <p class="card-desc">Update your display name and profile picture</p>
+                    </div>
+                </div>
+                <div class="profile-card-body">
+
+                    <!-- Global alert -->
+                    <div id="profile-alert" class="profile-alert">
+                        <i id="profile-alert-icon" class="fas fa-check-circle"></i>
+                        <span id="profile-alert-msg"></span>
+                    </div>
+
+                    <!-- Avatar upload -->
+                    <div class="avatar-section">
+                        <div class="avatar-container">
+                            <div class="avatar-ring">
+                                <div class="avatar-inner">
+                                    <img id="avatar-preview" src="" alt="Profile photo">
+                                    <span id="avatar-initials">—</span>
+                                </div>
+                            </div>
+                            <button class="avatar-edit-btn" title="Upload photo"
+                                onclick="document.getElementById('avatar-file-input').click()">
+                                <i class="fas fa-camera"></i>
+                            </button>
+                            <input type="file" id="avatar-file-input" accept="image/*" onchange="handleAvatarChange(event)">
+                        </div>
+                        <div class="avatar-meta">
+                            <h4 id="avatar-name-display">Loading…</h4>
+                            <p class="user-email" id="avatar-email-display">—</p>
+                            <span class="verified-badge">
+                                <i class="fas fa-shield-check"></i> Verified Account
+                            </span>
+                            <p class="avatar-hint">JPG, PNG or GIF &middot; max 2 MB</p>
+                        </div>
+                    </div>
+
+                    <!-- Name / Email -->
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="field-fullname">Full Name</label>
+                            <div class="field-input-wrap">
+                                <i class="fas fa-user field-icon"></i>
+                                <input type="text" id="field-fullname" class="field-input"
+                                    placeholder="Your full name" maxlength="80" autocomplete="name">
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label>Email Address</label>
+                            <div class="field-input-wrap">
+                                <i class="fas fa-envelope field-icon"></i>
+                                <input type="email" id="field-email" class="field-input" disabled placeholder="—">
+                            </div>
+                            <span class="field-hint">Email cannot be changed here.</span>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- CARD 2: Account Details -->
+            <div class="profile-card">
+                <div class="profile-card-header">
+                    <div class="card-icon icon-blue"><i class="fas fa-id-card"></i></div>
+                    <div>
+                        <h3>Account Details</h3>
+                        <p class="card-desc">Phone, company, role, and location</p>
+                    </div>
+                </div>
+                <div class="profile-card-body">
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="field-phone">Phone Number</label>
+                            <div class="field-input-wrap">
+                                <i class="fas fa-phone field-icon"></i>
+                                <input type="tel" id="field-phone" class="field-input"
+                                    placeholder="+91 98765 43210" maxlength="20" autocomplete="tel">
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label for="field-company">Company / Organisation</label>
+                            <div class="field-input-wrap">
+                                <i class="fas fa-building field-icon"></i>
+                                <input type="text" id="field-company" class="field-input"
+                                    placeholder="Your company name" maxlength="80">
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label for="field-role">Role / Job Title</label>
+                            <div class="field-input-wrap">
+                                <i class="fas fa-briefcase field-icon"></i>
+                                <input type="text" id="field-role" class="field-input"
+                                    placeholder="e.g. Business Analyst" maxlength="60">
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label for="field-location">Location</label>
+                            <div class="field-input-wrap">
+                                <i class="fas fa-map-marker-alt field-icon"></i>
+                                <input type="text" id="field-location" class="field-input"
+                                    placeholder="e.g. Mumbai, India" maxlength="60">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CARD 3: Change Password -->
+            <div class="profile-card">
+                <div class="profile-card-header">
+                    <div class="card-icon icon-purple"><i class="fas fa-lock"></i></div>
+                    <div>
+                        <h3>Change Password</h3>
+                        <p class="card-desc">Leave blank to keep your current password unchanged</p>
+                    </div>
+                </div>
+                <div class="profile-card-body">
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="field-new-password">New Password</label>
+                            <div class="field-input-wrap">
+                                <i class="fas fa-key field-icon"></i>
+                                <input type="password" id="field-new-password" class="field-input"
+                                    placeholder="Min 6 characters" minlength="6"
+                                    autocomplete="new-password" oninput="updateStrength(this.value)">
+                                <button type="button" class="toggle-password"
+                                    onclick="togglePw('field-new-password', this)">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                            <div class="strength-meter" id="strength-meter" style="display:none;">
+                                <div class="strength-bar-track">
+                                    <div class="strength-bar-fill" id="strength-bar"></div>
+                                </div>
+                                <span class="strength-label" id="strength-label">Weak</span>
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label for="field-confirm-password">Confirm New Password</label>
+                            <div class="field-input-wrap">
+                                <i class="fas fa-lock field-icon"></i>
+                                <input type="password" id="field-confirm-password" class="field-input"
+                                    placeholder="Repeat new password" minlength="6"
+                                    autocomplete="new-password" oninput="checkPwMatch()">
+                                <button type="button" class="toggle-password"
+                                    onclick="togglePw('field-confirm-password', this)">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                            <span class="field-hint" id="pw-match-hint"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ACCOUNT STATS -->
+            <div>
+                <p style="font-size:0.78rem;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin:0 0 12px;">
+                    Account Overview
+                </p>
+                <div class="profile-stats">
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-joined">—</div>
+                        <div class="stat-label">Member Since</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-last-login">—</div>
+                        <div class="stat-label">Last Sign In</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-provider">—</div>
+                        <div class="stat-label">Auth Provider</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SAVE BUTTON -->
+            <div style="display:flex;justify-content:flex-end;">
+                <button class="btn-save-profile" id="btn-save-profile" onclick="saveProfile()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+
+            <!-- SIGN OUT / DANGER ZONE -->
+            <div class="profile-card danger-zone">
+                <div class="profile-card-header">
+                    <div class="card-icon" style="background:rgba(239,68,68,0.12);color:#f87171;">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </div>
+                    <div>
+                        <h3 style="color:#f87171;">Sign Out</h3>
+                        <p class="card-desc">Sign out of your account on this device</p>
+                    </div>
+                </div>
+                <div class="profile-card-body">
+                    <button class="btn-signout" id="btn-signout" onclick="signOutAndRedirect()">
+                        <i class="fas fa-sign-out-alt"></i> Sign Out
+                    </button>
+                </div>
+            </div>
+
+        </div><!-- /profile-content -->
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+    let supaClient = null;
+    let currentUser = null;
+    let avatarDataUrl = null;
+
+    async function initProfile() {
+        const url = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.url) || 'https://ijsfmdgysmwovaighumv.supabase.co';
+        const key = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.key) || 'sb_publishable_EdW1JxXZSkEA1uV4Yl4eIg_F9dvq-2h';
+
+        if (window.SupabaseAuth && typeof window.SupabaseAuth.init === 'function') {
+            supaClient = window.SupabaseAuth.init();
+        }
+
+        if (!supaClient) {
+            if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
+                setTimeout(initProfile, 300); return;
+            }
+            supaClient = window.supabase.createClient(url, key, {
+                auth: { persistSession: true, autoRefreshToken: true }
+            });
+        }
+
+        const { data, error } = await supaClient.auth.getSession();
+        if (error || !data || !data.session) { showGate(); return; }
+
+        currentUser = data.session.user;
+        populateProfile(currentUser);
+        showContent();
+    }
+
+    function showGate() {
+        document.getElementById('profile-gate-card').style.display = 'block';
+        document.getElementById('profile-content').style.display = 'none';
+    }
+
+    function showContent() {
+        document.getElementById('profile-gate-card').style.display = 'none';
+        document.getElementById('profile-content').style.display = 'flex';
+    }
+
+    function populateProfile(user) {
+        const meta = user.user_metadata || {};
+        const fullName = meta.full_name || meta.name || '';
+        const email = user.email || '';
+
+        // Avatar
+        if (meta.avatar_base64) {
+            setAvatarImage(meta.avatar_base64);
+        } else if (meta.avatar_url) {
+            setAvatarImage(meta.avatar_url);
+        } else {
+            setAvatarInitials(fullName || email);
+        }
+
+        document.getElementById('avatar-name-display').textContent = fullName || email.split('@')[0];
+        document.getElementById('avatar-email-display').textContent = email;
+        document.getElementById('field-fullname').value = fullName;
+        document.getElementById('field-email').value = email;
+        document.getElementById('field-phone').value   = meta.phone    || '';
+        document.getElementById('field-company').value = meta.company  || '';
+        document.getElementById('field-role').value    = meta.role     || '';
+        document.getElementById('field-location').value= meta.location || '';
+
+        // Stats
+        const created   = user.created_at        ? new Date(user.created_at)        : null;
+        const lastLogin = user.last_sign_in_at    ? new Date(user.last_sign_in_at)   : null;
+        document.getElementById('stat-joined').textContent     = created   ? created.toLocaleDateString('en-IN',{month:'short',year:'numeric'}) : '—';
+        document.getElementById('stat-last-login').textContent = lastLogin  ? timeAgo(lastLogin) : '—';
+        document.getElementById('stat-provider').textContent   = (user.app_metadata && user.app_metadata.provider) ? capitalize(user.app_metadata.provider) : 'Email';
+    }
+
+    /* ── Avatar ── */
+    function setAvatarImage(src) {
+        const preview = document.getElementById('avatar-preview');
+        const initials = document.getElementById('avatar-initials');
+        preview.src = src;
+        preview.style.display = 'block';
+        initials.style.display = 'none';
+    }
+
+    function setAvatarInitials(nameOrEmail) {
+        const preview = document.getElementById('avatar-preview');
+        const initials = document.getElementById('avatar-initials');
+        preview.style.display = 'none';
+        initials.style.display = 'flex';
+        const parts = nameOrEmail.trim().split(/\s+/);
+        initials.textContent = parts.length >= 2
+            ? (parts[0][0] + parts[1][0]).toUpperCase()
+            : (nameOrEmail[0] || '?').toUpperCase();
+    }
+
+    function handleAvatarChange(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) { showAlert('Image must be under 2 MB.', 'error'); return; }
+        const reader = new FileReader();
+        reader.onload = (e) => { avatarDataUrl = e.target.result; setAvatarImage(avatarDataUrl); };
+        reader.readAsDataURL(file);
+    }
+
+    /* ── Password ── */
+    function togglePw(inputId, btn) {
+        const input = document.getElementById(inputId);
+        const icon  = btn.querySelector('i');
+        if (input.type === 'password') { input.type = 'text'; icon.className = 'fas fa-eye-slash'; }
+        else                            { input.type = 'password'; icon.className = 'fas fa-eye'; }
+    }
+
+    function updateStrength(value) {
+        const meter = document.getElementById('strength-meter');
+        const bar   = document.getElementById('strength-bar');
+        const label = document.getElementById('strength-label');
+        if (!value) { meter.style.display = 'none'; return; }
+        meter.style.display = 'block';
+
+        let score = 0;
+        if (value.length >= 6)            score++;
+        if (value.length >= 10)           score++;
+        if (/[A-Z]/.test(value))          score++;
+        if (/[0-9]/.test(value))          score++;
+        if (/[^A-Za-z0-9]/.test(value))   score++;
+
+        const levels = [
+            { pct: '20%', color: '#ef4444', text: 'Very Weak' },
+            { pct: '40%', color: '#f97316', text: 'Weak' },
+            { pct: '60%', color: '#eab308', text: 'Fair' },
+            { pct: '80%', color: '#3b82f6', text: 'Strong' },
+            { pct: '100%',color: '#3ecf8e', text: 'Very Strong' },
+        ];
+        const lvl = levels[Math.min(score, 4)];
+        bar.style.width = lvl.pct;
+        bar.style.background = lvl.color;
+        label.textContent = lvl.text;
+        label.style.color = lvl.color;
+        checkPwMatch();
+    }
+
+    function checkPwMatch() {
+        const pw      = document.getElementById('field-new-password').value;
+        const confirm = document.getElementById('field-confirm-password').value;
+        const hint    = document.getElementById('pw-match-hint');
+        if (!confirm) { hint.textContent = ''; return; }
+        if (pw === confirm) { hint.textContent = '✓ Passwords match';      hint.style.color = '#3ecf8e'; }
+        else                { hint.textContent = '✗ Passwords do not match'; hint.style.color = '#f87171'; }
+    }
+
+    /* ── Save ── */
+    async function saveProfile() {
+        if (!supaClient || !currentUser) { showAlert('Not signed in.', 'error'); return; }
+        const btn = document.getElementById('btn-save-profile');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+
+        try {
+            const fullName = document.getElementById('field-fullname').value.trim();
+            const phone    = document.getElementById('field-phone').value.trim();
+            const company  = document.getElementById('field-company').value.trim();
+            const role     = document.getElementById('field-role').value.trim();
+            const location = document.getElementById('field-location').value.trim();
+            const newPw    = document.getElementById('field-new-password').value;
+            const confirmPw= document.getElementById('field-confirm-password').value;
+
+            if (newPw) {
+                if (newPw.length < 6)   { showAlert('Password must be at least 6 characters.', 'error'); return; }
+                if (newPw !== confirmPw) { showAlert('Passwords do not match.', 'error'); return; }
+            }
+
+            const metaUpdate = { full_name: fullName, phone, company, role, location };
+            if (avatarDataUrl) metaUpdate.avatar_base64 = avatarDataUrl;
+
+            const updatePayload = { data: metaUpdate };
+            if (newPw) updatePayload.password = newPw;
+
+            const { data, error } = await supaClient.auth.updateUser(updatePayload);
+
+            if (error) {
+                showAlert(error.message || 'Failed to save profile.', 'error');
+            } else {
+                currentUser = data.user;
+                document.getElementById('avatar-name-display').textContent = fullName || currentUser.email.split('@')[0];
+                if (!avatarDataUrl) setAvatarInitials(fullName || currentUser.email);
+
+                if (window.SupabaseAuth && typeof window.SupabaseAuth.updateUI === 'function') {
+                    window.SupabaseAuth.updateUI(currentUser);
+                }
+
+                // Clear password fields
+                document.getElementById('field-new-password').value    = '';
+                document.getElementById('field-confirm-password').value= '';
+                document.getElementById('strength-meter').style.display = 'none';
+                document.getElementById('pw-match-hint').textContent    = '';
+                showAlert('Profile saved successfully!', 'success');
+            }
+        } catch (err) {
+            showAlert(err.message || 'An error occurred.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+        }
+    }
+
+    /* ── Sign Out ── */
+    async function signOutAndRedirect() {
+        const btn = document.getElementById('btn-signout');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing out…';
+        if (supaClient) await supaClient.auth.signOut();
+        window.location.href = '/login/';
+    }
+
+    /* ── Alert ── */
+    function showAlert(msg, type='success') {
+        const box    = document.getElementById('profile-alert');
+        const msgEl  = document.getElementById('profile-alert-msg');
+        const iconEl = document.getElementById('profile-alert-icon');
+        const icons  = { success:'fa-check-circle', error:'fa-exclamation-circle', info:'fa-info-circle' };
+        box.className = 'profile-alert show ' + type;
+        msgEl.textContent = msg;
+        iconEl.className = 'fas ' + (icons[type] || 'fa-info-circle');
+        clearTimeout(box._timer);
+        box._timer = setTimeout(() => { box.className = 'profile-alert'; }, 4500);
+        box.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    }
+
+    /* ── Utils ── */
+    function timeAgo(date) {
+        const diff = (Date.now() - date.getTime()) / 1000;
+        if (diff < 60)      return 'Just now';
+        if (diff < 3600)    return Math.floor(diff/60) + 'm ago';
+        if (diff < 86400)   return Math.floor(diff/3600) + 'h ago';
+        if (diff < 2592000) return Math.floor(diff/86400) + 'd ago';
+        return date.toLocaleDateString('en-IN',{month:'short',day:'numeric'});
+    }
+    function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+    document.addEventListener('DOMContentLoaded', initProfile);
+</script>
+{% endblock %}

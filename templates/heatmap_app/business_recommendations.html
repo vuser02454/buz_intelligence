@@ -27,17 +27,31 @@
             <a href="#" class="sidebar-link">
                 <i class="fas fa-user me-3"></i>Profile
             </a>
-            <a href="{% url 'logout' %}" class="sidebar-link sidebar-link-logout">
-                <i class="fas fa-sign-out-alt me-3"></i>Logout
+            <a href="{% url 'home' %}" class="sidebar-link">
+                <i class="fas fa-arrow-left me-3"></i>Back to Map
             </a>
         </nav>
         <div class="sidebar-footer">
-            {% if user.is_authenticated %}
-            <div class="sidebar-user">
-                <span class="sidebar-user-name">{{ user.full_name }}</span>
-                <span class="user-type-badge user-type-{{ user.user_type }}">{{ user.get_user_type_display }}</span>
+            <div class="dropdown sidebar-user-dropdown">
+                <div class="sidebar-user" id="sidebarUserMenuBtn" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" style="cursor:pointer;">
+                    <div class="sidebar-user-avatar" id="sidebar-user-avatar-placeholder"></div>
+                    <div class="sidebar-user-info">
+                        <span class="sidebar-user-name" id="sidebar-user-name-placeholder">Guest User</span>
+                    </div>
+                    <i class="fas fa-chevron-up sidebar-user-chevron"></i>
+                </div>
+                <div class="dropdown-menu sidebar-user-menu" aria-labelledby="sidebarUserMenuBtn">
+                    <a class="sidebar-user-menu-item" href="/profile/">
+                        <i class="fas fa-user-circle"></i>
+                        <span>Account Settings</span>
+                    </a>
+                    <hr class="sidebar-user-divider">
+                    <button class="sidebar-user-menu-item item-danger" id="sidebar-dropdown-logout" type="button">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Sign Out</span>
+                    </button>
+                </div>
             </div>
-            {% endif %}
         </div>
     </aside>
 
@@ -49,9 +63,7 @@
             </button>
             <h1 class="dashboard-title">Business Intelligence</h1>
             <div class="dashboard-header-actions">
-                {% if user.is_authenticated %}
-                <span class="user-type-badge user-type-{{ user.user_type }}">{{ user.get_user_type_display }}</span>
-                {% endif %}
+                <div id="dashboard-header-auth-pill" class="d-flex align-items-center gap-2"></div>
             </div>
         </header>
 
