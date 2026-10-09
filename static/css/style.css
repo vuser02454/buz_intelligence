@@ -6195,4 +6195,23 @@ body.cinematic-mode .explore-mode-btn {
     border-color: rgba(255,255,255,0.08) !important;
     margin: 4px 0 !important;
 }
-
+
+/* ── Favorites: heart button shown on place cards ───────────────────────── */
+.fav-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #94a3b8;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    transition: color .2s, background .2s, transform .15s;
+}
+.fav-btn:hover { color: #fb7185; transform: scale(1.1); }
+.fav-btn.active { color: #f43f5e; background: rgba(244, 63, 94, 0.15); border-color: rgba(244, 63, 94, 0.4); }
+.fav-btn:disabled { opacity: .6; cursor: progress; }

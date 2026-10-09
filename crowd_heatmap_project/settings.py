@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     'channels',
     'tracker',
     'business_intelligence',
+    'favorites',
 ]
 
 MIDDLEWARE = [
