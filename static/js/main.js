@@ -932,6 +932,7 @@ function renderPopularPlacesFlashcards(places) {
                     <span class="place-type">${type}</span>
                 </div>
                 <div class="d-flex align-items-center gap-2">
+                    ${window.Favorites ? Favorites.heartHtml(Favorites.fromOverpass(place)) : ''}
                     <span class="place-rank-badge">#${index + 1}</span>
                     <span class="place-rating"><i class="fas fa-star text-warning"></i> ${rating}</span>
                     <span class="place-distance badge bg-dark border border-secondary">${distance}</span>
@@ -990,6 +991,7 @@ function renderPopularPlacesFlashcards(places) {
     });
 
     container.innerHTML = html;
+    if (window.Favorites) Favorites.refresh();
 
     // Keep panel hidden until user explicitly requests Popular Places.
     if (popularPlacesPanelRequested) {
@@ -1741,7 +1743,10 @@ function createBusinessCard(place, type, index, fallbackLat, fallbackLon) {
         <div class="business-card">
             <div class="business-card-header d-flex justify-content-between align-items-center">
                 <span class="business-name">${name}</span>
-                ${headerBadge}
+                <span class="d-flex align-items-center gap-2">
+                    ${headerBadge}
+                    ${window.Favorites ? Favorites.heartHtml(Favorites.fromOverpass(place)) : ''}
+                </span>
             </div>
             
             <div class="business-location-row">
@@ -1886,6 +1891,7 @@ function renderPopularPlacesTable(places, lat, lon) {
         col.innerHTML = createBusinessCard(place, 'popular', index, lat, lon);
         popularPlacesList.appendChild(col);
     });
+    if (window.Favorites) Favorites.refresh();
 
     if (popularPlacesPanelRequested) {
         if (popularPlacesPanel.classList.contains('d-none')) {
@@ -1936,6 +1942,7 @@ function renderBusinessRecommendationCards(places, lat, lon) {
         col.innerHTML = createBusinessCard(place, 'recommended', index, lat, lon);
         row.appendChild(col);
     });
+    if (window.Favorites) Favorites.refresh();
 }
 
 // Default center when no location selected (Bangalore)

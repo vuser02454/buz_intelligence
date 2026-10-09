@@ -70,6 +70,12 @@ Data is sourced live from **OpenStreetMap** (Nominatim geocoding + Overpass API)
 - **Active Session & Device Management**: View active sessions with device names/IPs and revoke any session remotely.
 - **Security Audit Logs**: Automated logging of logins, password resets, and 2FA events.
 
+### Favorites & Popular Picks
+- Signed-in users tap the heart on any Popular Places card to save it; `/favorites/` lists saved places and recommends new ones.
+- Stored in Supabase (`public.favorite_places`) with Row Level Security; Django forwards the user's own token, so ownership is enforced by Supabase.
+- Recommendations (`favorites/recommender.py`) blend time-decayed popularity across all users, the user's category taste, distance, and the revenue engine's location score.
+- **Setup:** run [`supabase/favorites.sql`](supabase/favorites.sql) and [`supabase/user_history.sql`](supabase/user_history.sql) (per-user history of searches, analyses and inquiries) in the Supabase SQL Editor. Also run [`supabase/security_fixes.sql`](supabase/security_fixes.sql), which stops the public anon key from reading profile emails and activity logs.
+
 ### Interactive Dashboard
 - Analytics UI with live revenue animation, business intelligence panel, 4×4 popular places flashcard matrix, and feasibility evaluation.
 - WebSocket-powered chatbot for real-time AI assistance across all pages.
