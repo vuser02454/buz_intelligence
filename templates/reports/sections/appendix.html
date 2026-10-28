@@ -26,7 +26,7 @@
 
 <h3>Model assumptions</h3>
 <ul class="small">
-  <li>Heatmap thresholds: High ≥ 15, Medium 5–14, Low 1–4 mapped features per sector; 3 rings of {{ ring_width }} m × 3 wedges of 120°.</li>
+  <li>Heatmap thresholds (density of mapped features per sector): High ≥ {{ thresholds.high }}/km², Medium {{ thresholds.medium }}–{{ thresholds.high_minus_one }}/km², Low below {{ thresholds.medium }}/km²; 3 rings of {{ ring_width }} m × 3 wedges of 120°.</li>
   {% if s.revenue.status == 'ok' %}
   <li>Revenue engine for "{{ s.revenue.business_type }}": average spend {{ s.revenue.assumptions.avg_spend|inr }}, conversion {{ s.revenue.assumptions.conversion_rate|pct }}, ideal {{ s.revenue.assumptions.optimal_daily_customers.0 }}–{{ s.revenue.assumptions.optimal_daily_customers.1 }} customers per day{% if s.revenue.uses_default_assumptions %} (generic defaults – no category-specific values){% endif %}.</li>
   <li>Monthly = daily × 30; annual = daily × 365. The scenario range is ±10% to ±40% depending on the engine's confidence score.</li>

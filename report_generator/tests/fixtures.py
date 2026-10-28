@@ -55,14 +55,24 @@ def overpass_elements():
     return els
 
 
+def clear_overpass_caches():
+    from django.core.cache import cache, caches
+    cache.clear()
+    caches['overpass'].clear()
+
+
 @contextmanager
 def fake_overpass(elements=None, error=None):
-    """Patch the shared Overpass helper used by the views and the report."""
+    """Patch the shared Overpass helper used by the views and the report (no network)."""
     data = None if error else {'elements': overpass_elements() if elements is None else elements}
+    clear_overpass_caches()
     # views.py imports the helper by name, so both references are patched.
-    with patch('business_intelligence.analysis._run_overpass_query', return_value=(data, error)) as m, \
-            patch('business_intelligence.views._run_overpass_query', return_value=(data, error)):
-        yield m
+    try:
+        with patch('business_intelligence.analysis._run_overpass_query', return_value=(data, error)) as m, \
+                patch('business_intelligence.views._run_overpass_query', return_value=(data, error)):
+            yield m
+    finally:
+        clear_overpass_caches()
 
 
 @contextmanager
@@ -86,7 +96,7 @@ def png_data_url(width=640, height=400, color=(30, 120, 200), fmt='PNG'):
 def request_body(**overrides):
     body = {
         'location': {'name': NAME, 'latitude': LAT, 'longitude': LON},
-        'radius_m': 2000,
+        'radius_m': 5000,
         'business_type': '',
         'scope': 'full',
         'source': 'dashboard',

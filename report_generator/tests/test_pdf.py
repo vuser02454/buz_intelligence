@@ -16,13 +16,13 @@ from .fixtures import LAT, LON, NAME, fake_overpass, png_data_url
 
 def build_pdf(business='cafe', screenshot=True, elements=None, capture_error=''):
     with fake_overpass(elements=elements):
-        snap = collect_analysis(LAT, LON, NAME, 2000, business)
+        snap = collect_analysis(LAT, LON, NAME, 5000, business)
     risks = content.risk_register(snap)
     with self_disabled_ai():
         texts = ai_writer.write_report_text(snap, risks)
     phases = content.timeline(texts['stages']['roadmap']['data']['steps'])
     png = decode_screenshot(png_data_url(), 2 * 1024 * 1024)[0] if screenshot else None
-    report = Report(location_name=NAME, latitude=LAT, longitude=LON, radius_m=2000, business_type=business,
+    report = Report(location_name=NAME, latitude=LAT, longitude=LON, radius_m=5000, business_type=business,
                     screenshot=png, capture_meta={'captured': screenshot, 'capture_error': capture_error, 'offset_m': 0.0},
                     created_at=timezone.now(), expires_at=timezone.now())
     ctx = services.build_context(report, snap, texts, risks, chart_generator.build_all(snap, risks, phases),
@@ -47,6 +47,54 @@ class PDFTests(SimpleTestCase):
         super().setUpClass()
         cls.pdf, cls.pages, cls.snap = build_pdf()
         cls.text = ' '.join(extract_text(cls.pdf).split())
+
+    def test_projected_revenue_views_are_included(self):
+        ts = self.snap['revenue_timeseries']
+        self.assertEqual(ts['status'], 'ok')
+        self.assertEqual(set(ts['views']), {'live', 'daily', 'weekly', 'monthly'})
+        weekly = ts['views']['weekly']
+        self.assertAlmostEqual(ts['views']['daily']['total'], weekly['totals'][weekly['today_index']], delta=1)
+        self.assertIn('Projected revenue over time in the area', self.text)
+        self.assertIn('Figure 6.2', self.text)
+        self.assertIn('not sales data', self.text)
+
+    def test_synergy_section_included(self):
+        syn = self.snap['synergy']
+        self.assertEqual(syn['status'], 'ok')
+        self.assertIn('Business Synergy Opportunity Analysis', self.text)
+        for heading in ('7.1 Synergy overview', '7.2 Existing businesses that could help', '7.3 Environmental opportunities',
+                        '7.4 Synergy calculations', '7.5 Revenue impact scenarios', '7.6 Risks and limitations',
+                        '7.7 Practical advice'):
+            self.assertIn(heading, self.text)
+        self.assertIn(f"{syn['score']:.1f}/100", self.text)
+        self.assertIn(content.inr(syn['revenue']['rows'][2]['monthly']), self.text)   # moderate scenario
+        self.assertIn('Figure 7.1', self.text)
+        self.assertIn('8. BUSINESS FEASIBILITY', self.text.upper())
+        self.assertIn('7. BUSINESS SYNERGY OPPORTUNITY ANALYSIS', self.text.upper())
+
+    def test_synergy_base_is_the_section_6_revenue(self):
+        syn = self.snap['synergy']
+        self.assertEqual(syn['revenue']['base_monthly'], round(self.snap['revenue']['monthly']))
+        self.assertEqual(syn['comparison']['model']['rank'], 1)
+        self.assertLessEqual(len(syn['top5']), 5)
+
+    def test_reportlab_fallback_includes_synergy(self):
+        from unittest.mock import patch
+        import builtins
+        real_import = builtins.__import__
+
+        def no_weasyprint(name, *args, **kwargs):
+            if name.startswith('weasyprint'):
+                raise OSError('cannot load library pango')
+            return real_import(name, *args, **kwargs)
+
+        with patch('builtins.__import__', side_effect=no_weasyprint):
+            pdf, _pages, snap = build_pdf()
+        text = ' '.join(extract_text(pdf).split())
+        self.assertTrue(validate_pdf(pdf, ['Business Synergy Opportunity Analysis', 'Revenue forecast']))
+        self.assertIn(f"Synergy Potential Score {snap['synergy']['score']:.1f}/100", text)
+        self.assertIn('Revenue impact scenarios', text)
+        self.assertIn('Practical advice', text)
 
     def test_valid_pdf_signature(self):
         self.assertTrue(self.pdf.startswith(b'%PDF-'))
@@ -91,7 +139,7 @@ class PDFTests(SimpleTestCase):
         text = ' '.join(extract_text(pdf).split())
         self.assertIn('The live heatmap screenshot is not available', text)
         self.assertIn('tiles blocked', text)
-        self.assertIn('Reconstruction (not a screenshot)', text)
+        self.assertIn('Server-drawn static map (not a screenshot)', text)
 
     def test_missing_optional_data(self):
         pdf, _, _ = build_pdf(elements=[], screenshot=False)

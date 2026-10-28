@@ -12,7 +12,7 @@ class RequestValidationTests(SimpleTestCase):
     def test_valid_request(self):
         clean = v.validate_report_request(request_body(business_type='Coffee Shop'))
         self.assertEqual(clean['latitude'], LAT)
-        self.assertEqual(clean['radius_m'], 2000)
+        self.assertEqual(clean['radius_m'], 5000)
         self.assertEqual(clean['business_type'], 'Coffee Shop')
 
     def test_missing_location(self):
@@ -21,7 +21,7 @@ class RequestValidationTests(SimpleTestCase):
         self.assertEqual(ctx.exception.code, 'no_location')
 
     def test_invalid_radius(self):
-        for radius in (9999, 'abc', -1):
+        for radius in (2000, 9999, 'abc', -1):
             with self.assertRaises(v.ValidationError) as ctx:
                 v.validate_report_request(request_body(radius_m=radius))
             self.assertEqual(ctx.exception.code, 'invalid_radius')
@@ -118,3 +118,43 @@ class AIOutputValidationTests(SimpleTestCase):
         self.assertEqual(v.ungrounded_numbers('About ₹2.4 lakh a month, 18% conversion, 62 rivals within 2,000 m', evidence), [])
         self.assertEqual(v.ungrounded_numbers('Rent is ₹50,000 with a 35% margin', evidence), ['₹50,000', '35%'])
         self.assertEqual(v.ungrounded_numbers('Survey 30 people', evidence, money_only=True), [])
+
+
+class BusinessTypeAndAddressTests(SimpleTestCase):
+    """Bug 6: legitimate categories and Indian place names pass; injection and addresses-as-category do not."""
+
+    def test_legitimate_values(self):
+        for value in ('cafe', 'Coffee Shop', 'Bakery & Sweets', 'Auto-repair', "Women's Salon", 'Kirana / General Store',
+                      'Café', 'ಕಾಫಿ ಅಂಗಡಿ', 'चाय की दुकान', 'Mobile, Accessories', 'Pharmacy (24x7)', 'fast_food'):
+            self.assertEqual(v.validate_business_type(value), value, value)
+
+    def test_whitespace_and_unicode_are_normalised(self):
+        self.assertEqual(v.validate_business_type('  Coffee   Shop \n'), 'Coffee Shop')
+        self.assertEqual(v.validate_business_type('Ｃａｆｅ'), 'Cafe')  # full-width -> NFKC
+        self.assertEqual(v.validate_business_type(None), '')
+
+    def test_injection_attempts_are_rejected_with_a_clear_message(self):
+        for value in ('<script>alert(1)</script>', "cafe'; DROP TABLE x;--", '{{ settings.SECRET_KEY }}',
+                      'cafe`rm -rf`', 'cafe $(id)', 'a|b', 'x" onerror="y', 'https://evil.example', 'cafe\\n'):
+            with self.assertRaises(v.ValidationError, msg=value) as ctx:
+                v.validate_business_type(value)
+            self.assertEqual(ctx.exception.code, 'invalid_business_type')
+            self.assertNotIn('unsupported characters', str(ctx.exception))
+
+    def test_an_address_sent_as_business_type_gets_a_specific_error(self):
+        with self.assertRaises(v.ValidationError) as ctx:
+            v.validate_business_type('auto repair shop, MDR, Mulamoottil Colony, Kayamkulam, Alappuzha, Kerala, 690502')
+        self.assertIn('location.address', str(ctx.exception))
+
+    def test_control_characters_are_stripped(self):
+        self.assertEqual(v.validate_business_type('ca\x00fe'), 'cafe')
+
+    def test_address_field(self):
+        clean = v.validate_report_request(request_body(location={
+            'name': 'Uttarahalli', 'latitude': LAT, 'longitude': LON,
+            'address': '#12, 2nd Main, Uttarahalli, Bengaluru South City Corporation, ಬೆಂಗಳೂರು - 560061'}))
+        self.assertTrue(clean['address'].startswith('#12, 2nd Main'))
+        with self.assertRaises(v.ValidationError) as ctx:
+            v.validate_report_request(request_body(location={'name': 'x', 'latitude': LAT, 'longitude': LON,
+                                                             'address': '<img src=x onerror=alert(1)>'}))
+        self.assertEqual(ctx.exception.code, 'invalid_address')

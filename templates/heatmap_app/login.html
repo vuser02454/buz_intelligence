@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Sign In | Supabase Auth - Business Intelligence{% endblock %}
+{% block title %}Sign In | Business Intelligence{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -534,18 +534,10 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- Supabase JS Client CDN -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+{# supabase-js and supabase-auth.js are loaded once by base.html; loading them again here created a second auth client. #}
+{{ next_url|json_script:"login-next-url" }}
 <script>
-    // Supabase Configuration from Django Template Context
-    window.SUPABASE_CONFIG = {
-        url: '{{ SUPABASE_URL|default:"https://ijsfmdgysmwovaighumv.supabase.co" }}',
-        key: '{{ SUPABASE_ANON_KEY|default:"sb_publishable_EdW1JxXZSkEA1uV4Yl4eIg_F9dvq-2h" }}'
-    };
-</script>
-<script src="{% static 'js/supabase-auth.js' %}"></script>
-<script>
-    const nextUrl = "{{ next_url|default:'/dashboard/' }}";
+    const nextUrl = JSON.parse(document.getElementById('login-next-url').textContent) || '/dashboard/';
     let currentResetEmail = '';
 
     function showAlert(message, type = 'error') {
@@ -639,7 +631,7 @@
 
         try {
             // Email link will redirect back to this login page with recovery session
-            const redirectUrl = window.location.origin + '/login/';
+            const redirectUrl = window.SupabaseAuth.emailRedirectUrl(nextUrl);
             const { data, error } = await client.auth.resetPasswordForEmail(email, {
                 redirectTo: redirectUrl
             });
@@ -719,10 +711,13 @@
 
     function startSignupVerificationCheck() {
         stopSignupVerificationCheck();
-        // Poll every 3.5 seconds
+        // Backup for when cross-tab session sync does not fire. Each check is a
+        // password sign-in, so poll gently (Supabase rate-limits sign-ins) and give up after 10 minutes.
+        const startedAt = Date.now();
         signupVerifyInterval = setInterval(async () => {
+            if (Date.now() - startedAt > 10 * 60 * 1000) { stopSignupVerificationCheck(); return; }
             await checkVerificationStatus(false);
-        }, 3500);
+        }, 6000);
     }
 
     function stopSignupVerificationCheck() {
@@ -779,20 +774,13 @@
                 stopSignupVerificationCheck();
                 if (statusBox) {
                     statusBox.className = 'auth-verify-status-box verified';
-                    statusBox.innerHTML = '<i class="fas fa-check-circle"></i> <span>Email verified! Redirecting to Sign In...</span>';
+                    statusBox.innerHTML = '<i class="fas fa-check-circle"></i> <span>Email verified! Redirecting...</span>';
                 }
-                showAlert('Email verified successfully! Redirecting to Sign In...', 'success');
-
-                // Sign out so they can land on sign in screen or choose how to proceed
-                await client.auth.signOut();
-
-                setTimeout(() => {
-                    cancelSignupVerification();
-                    switchAuthTab('signin');
-                    document.getElementById('signin-email').value = pendingSignup.email;
-                    document.getElementById('signin-password').value = pendingSignup.password;
-                    showAlert('Your email has been verified! You can now sign in.', 'success');
-                }, 1800);
+                showAlert('Email verified! Taking you to your dashboard...', 'success');
+                // Keep the new session. (A signOut() here used to revoke the session that
+                // the confirmation link had just created in the other tab.)
+                pendingSignup.password = '';
+                setTimeout(() => window.location.replace(nextUrl), 800);
                 return;
             }
 
@@ -833,7 +821,7 @@
                 type: 'signup',
                 email: pendingSignup.email,
                 options: {
-                    emailRedirectTo: window.location.origin + '/login/?verified=true'
+                    emailRedirectTo: window.SupabaseAuth.emailRedirectUrl(nextUrl)
                 }
             });
 
@@ -868,8 +856,8 @@
         // Check if user opened page from a password recovery link or verified signup link
         const hash = window.location.hash || '';
         const search = window.location.search || '';
-        const isRecoveryUrl = hash.includes('type=recovery') || search.includes('type=recovery');
-        const isSignupVerified = search.includes('verified=true') || hash.includes('type=signup') || search.includes('type=signup');
+        const isRecoveryUrl = hash.includes('type=recovery') || search.includes('type=recovery') || search.includes('mode=reset');
+        const isSignupVerified = search.includes('verified=1') || search.includes('verified=true') || hash.includes('type=signup') || search.includes('type=signup');
 
         if (isRecoveryUrl) {
             switchAuthTab('new-password');
@@ -879,26 +867,27 @@
             showAlert('Your email has been verified! Please sign in with your credentials.', 'success');
         }
 
-        // Listen for Supabase password recovery and sign-in auth events
+        // Listen for password recovery, and for the confirmation link being opened in
+        // another tab (supabase-js syncs the session across tabs). The callback must
+        // stay synchronous: supabase-js awaits it while holding its auth lock.
         if (client) {
-            client.auth.onAuthStateChange(async (event, session) => {
+            client.auth.onAuthStateChange((event, session) => {
                 if (event === 'PASSWORD_RECOVERY') {
                     switchAuthTab('new-password');
                     showAlert('Password reset link verified! Please enter your new password below.', 'success');
-                } else if (event === 'SIGNED_IN' && pendingSignup.email) {
-                    // Triggered when link was clicked
-                    await checkVerificationStatus(false);
+                } else if (event === 'SIGNED_IN' && session && pendingSignup.email) {
+                    stopSignupVerificationCheck();
+                    showAlert('Email verified! Taking you to your dashboard...', 'success');
+                    setTimeout(() => window.location.replace(nextUrl), 600);
                 }
             });
 
-            // Check if already authenticated (skip if password recovery or verification in progress)
+            // Already signed in (session verified with the server): skip the form.
             if (!isRecoveryUrl && !isSignupVerified) {
-                client.auth.getSession().then(({ data }) => {
-                    if (data && data.session) {
-                        showAlert('You are already signed in. Redirecting to dashboard...', 'success');
-                        setTimeout(() => {
-                            window.location.href = nextUrl;
-                        }, 800);
+                window.SupabaseAuth.ready.then((user) => {
+                    if (user) {
+                        showAlert('You are already signed in. Redirecting...', 'success');
+                        window.location.replace(nextUrl);
                     }
                 });
             }
@@ -907,6 +896,10 @@
         // Handle Sign In Submission
         const formSignIn = document.getElementById('form-signin');
         const btnSignIn = document.getElementById('btn-submit-signin');
+        const resetSignInBtn = () => {
+            btnSignIn.disabled = false;
+            btnSignIn.innerHTML = '<i class="fas fa-arrow-right"></i> Sign In to Dashboard';
+        };
 
         formSignIn.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -916,25 +909,25 @@
             const password = document.getElementById('signin-password').value;
 
             btnSignIn.disabled = true;
-            btnSignIn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Authenticating...';
+            btnSignIn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
 
             try {
                 const { data, error } = await client.auth.signInWithPassword({ email, password });
-                if (error) {
-                    showAlert(error.message || 'Invalid email or password.');
-                    btnSignIn.disabled = false;
-                    btnSignIn.innerHTML = '<i class="fas fa-arrow-right"></i> Sign In to Dashboard';
-                } else {
-                    showAlert('Sign in successful! Connecting to Supabase project DB...', 'success');
-                    await window.SupabaseAuth.logActivity('auth_login', 'Login Page', { email: data.user.email });
-                    setTimeout(() => {
-                        window.location.href = nextUrl;
-                    }, 600);
+                if (error || !data || !data.user) {
+                    // Failed attempt: make sure no stale signed-in state is left on screen.
+                    window.SupabaseAuth.updateUI(null);
+                    showAlert((error && error.message) || 'Invalid email or password.');
+                    resetSignInBtn();
+                    return;
                 }
+                // The user object comes straight from the auth server, so the login is verified.
+                showAlert('Signed in. Redirecting...', 'success');
+                window.SupabaseAuth.logActivity('auth_login', 'Login Page', { email: data.user.email });
+                window.location.replace(nextUrl);
             } catch (err) {
+                window.SupabaseAuth.updateUI(null);
                 showAlert(err.message || 'An error occurred during authentication.');
-                btnSignIn.disabled = false;
-                btnSignIn.innerHTML = '<i class="fas fa-arrow-right"></i> Sign In to Dashboard';
+                resetSignInBtn();
             }
         });
 
@@ -954,7 +947,7 @@
             btnSignUp.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Account...';
 
             try {
-                const redirectUrl = window.location.origin + '/login/?verified=true';
+                const redirectUrl = window.SupabaseAuth.emailRedirectUrl(nextUrl);
                 const { data, error } = await client.auth.signUp({
                     email,
                     password,
@@ -969,8 +962,8 @@
                     btnSignUp.disabled = false;
                     btnSignUp.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
                 } else {
-                    await window.SupabaseAuth.logActivity('auth_signup', 'Registration', { email, full_name: fullName });
-                    
+                    window.SupabaseAuth.logActivity('auth_signup', 'Registration', { email });
+
                     if (data.session) {
                         // Email confirmation is disabled in Supabase; user is immediately logged in
                         showAlert('Account created & logged in! Redirecting...', 'success');
@@ -1057,7 +1050,7 @@
                 }
 
                 showAlert('Password updated successfully! Redirecting to dashboard...', 'success');
-                await window.SupabaseAuth.logActivity('auth_password_reset', 'Reset Password Email Verification');
+                window.SupabaseAuth.logActivity('auth_password_reset', 'Reset Password Email Verification');
 
                 // Clear the hash in URL
                 if (window.history && window.history.replaceState) {

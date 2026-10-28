@@ -70,3 +70,18 @@ def log_activity_to_supabase(event_type, feature_name=None, user_id=None, user_e
         err_msg = str(e)
         logger.warning(f"Supabase logging warning: {err_msg}")
         return {'success': False, 'error': err_msg, 'table_needed_sql': SUPABASE_CREATE_TABLE_SQL}
+
+
+_log_executor = None
+
+
+def log_activity_async(**kwargs):
+    """Queue log_activity_to_supabase on a small background pool (never blocks the request)."""
+    global _log_executor
+    if _log_executor is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _log_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='activity-log')
+    try:
+        _log_executor.submit(log_activity_to_supabase, **kwargs)
+    except RuntimeError:  # interpreter shutting down
+        pass

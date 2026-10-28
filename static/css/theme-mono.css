@@ -1,0 +1,377 @@
+/*
+ * Signed-in site theme, built on designs/DESIGN.md with signal-a.studio-style headlines.
+ *
+ * Loaded by base.html on every page EXCEPT the sign-in and auth-callback pages, and every
+ * rule is scoped to body.theme-mono, so the sign-in page keeps its original look.
+ * Visual only: no ids, handlers or layout logic change.
+ *
+ * Palette: color-2 #FFFFFF background, color-1 #000000 text (DESIGN.md). Secondary text and
+ * hairlines are black at reduced opacity (contrast-checked for WCAG AA). The map and the 3D
+ * revenue graph stay dark because their imagery and labels are made for a dark backdrop.
+ * Heatmap sectors keep their red / amber / green; red is otherwise only for errors / destructive.
+ *
+ * Type: Instrument Serif (condensed display serif) + Inter Tight 800 (heavy emphasis) for
+ * uppercase headlines; IBM Plex Mono (for GT America Mono) uppercase for labels and figures;
+ * Inter (for Neue Haas Grotesk) 300/400 for body text.
+ * Shapes: radius 1px or 10px. Elevation: none. Spacing: DESIGN.md scale.
+ *
+ * Everything sits in a cascade layer: layered !important declarations take precedence over the
+ * unlayered !important rules in style.css and Bootstrap, whatever their specificity.
+ */
+@layer theme-mono {
+
+body.theme-mono {
+    /* DESIGN.md tokens */
+    --color-1: #000000;                 /* text primary */
+    --color-2: #FFFFFF;                 /* background */
+    --text-xs: 13px; --text-sm: 16px; --text-base: 19px; --text-lg: 23px;
+    --weight-light: 300; --weight-regular: 400;
+    --space-1: 1px;  --space-2: 5px;  --space-3: 8px;  --space-4: 10px; --space-5: 15px; --space-6: 20px;
+    --space-7: 25px; --space-8: 30px; --space-9: 40px; --space-10: 60px; --space-11: 100px; --space-12: 140px;
+    --radius-sm: 1px; --radius-md: 10px;
+    --font-grotesk: 'Inter', 'Neue Haas Grotesk Text Pro', 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: 'IBM Plex Mono', 'GT America Mono', ui-monospace, Menlo, monospace;
+    --font-serif-display: 'Instrument Serif', 'Times New Roman', serif;
+    --font-heavy: 'Inter Tight', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    /* Extensions (not in DESIGN.md): headline sizes */
+    --text-xl: 34px;
+
+    /* Opacity variants (no new hues) */
+    --on-light-2: rgba(0, 0, 0, 0.72);        /* secondary text, 9:1 */
+    --on-light-3: rgba(0, 0, 0, 0.6);         /* metadata, 5.7:1 */
+    --line-light: rgba(0, 0, 0, 0.16);        /* hairlines (decorative) */
+    --on-dark-2: rgba(255, 255, 255, 0.72);   /* inside the dark map / 3D panels */
+    --on-dark-3: rgba(255, 255, 255, 0.56);
+    --line-dark: rgba(255, 255, 255, 0.22);
+    --danger-on-light: #B3261E;               /* errors / destructive only */
+
+    /* existing app tokens remapped */
+    --nav-bg: #FFFFFF; --nav-text: #000000; --nav-hover: #FFFFFF;
+    --primary-blue: #000000; --primary-blue-hover: #000000;
+    --footer-bg: #FFFFFF; --footer-text: var(--on-light-3);
+    --font-sans: var(--font-grotesk);
+    --shadow-soft: none; --shadow-medium: none; --shadow-elevated: none; --shadow-glow: none;
+    --glass-bg: #FFFFFF; --glass-border: var(--line-light);
+    --bg-primary: #FFFFFF; --bg-secondary: #FFFFFF; --bg-tertiary: #FFFFFF; --bg-panel: #FFFFFF;
+    --text-primary: #000000; --text-secondary: var(--on-light-2); --text-muted: var(--on-light-3);
+    --border-color: var(--line-light); --accent-color: #000000; --accent-hover: #000000;
+
+    background: var(--color-2) !important;
+    color: var(--color-1) !important;
+    font-family: var(--font-grotesk) !important;
+    font-size: var(--text-sm) !important;
+    font-weight: var(--weight-light) !important;
+}
+
+/* ------------------------------------------------------------------ resets ---- */
+body.theme-mono, body.theme-mono * { text-transform: none !important; box-shadow: none !important; text-shadow: none !important; }
+body.theme-mono :not(i, [class*="fa-"], code, pre) { font-family: var(--font-grotesk) !important; letter-spacing: normal !important; }
+body.theme-mono :not(i, [class*="fa-"]) { font-weight: var(--weight-regular) !important; }
+body.theme-mono :is(p, li, dd, .feature-hero-sub, .hero-subtitle, .sub, .card-desc, .syn-sub, .feature-tile p) { font-weight: var(--weight-light) !important; }
+body.theme-mono ::selection { background: var(--color-1); color: var(--color-2); }
+
+/* White canvas; the Three.js globe renders only on the sign-in page (base.html). */
+body.theme-mono #bg-animation { background: var(--color-2) !important; animation: none !important; }
+body.theme-mono #bg-animation::before, body.theme-mono #bg-animation::after, body.theme-mono .home-hero::before,
+body.theme-mono .tile-glow, body.theme-mono .feature-tile::before, body.theme-mono .business-opportunity-card::before,
+body.theme-mono .recs-panel::before, body.theme-mono .sidebar-link.active::before,
+body.theme-mono .sidebar-link.active::after { display: none !important; }
+body.theme-mono .explore-mode-btn { display: none !important; }   /* "cinematic view" only revealed the globe */
+body.theme-mono :is(.dashboard-main, .main-content, .dashboard-wrapper, .home-hero, .profile-page, .contact-container, .fav-page,
+    .feature-showcase-launchpad, .business-recommendations-section) { background: transparent !important; color: var(--color-1) !important; }
+
+/* ------------------------------------------------------------ desktop layout ---- */
+/* The content column is a flex item: let it shrink below its longest word (it used to grow
+   past the screen at large zoom, clipping the hero and the card grid). */
+body.theme-mono .dashboard-main { min-width: 0 !important; }
+body.theme-mono .dashboard-sidebar { overflow-x: hidden !important; }
+/* The fixed sidebar starts 56px from the top (style.css): keep the desktop navbar exactly that tall. */
+@media (min-width: 992px) {
+    body.theme-mono .navbar-base { height: 56px !important; min-height: 56px !important; padding-top: 0 !important; padding-bottom: 0 !important; }
+}
+body.theme-mono .feature-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)) !important; }
+body.theme-mono :is(.feature-hero, .home-hero) { container-type: inline-size !important; }
+
+/* -------------------------------------------------------------- typography ---- */
+body.theme-mono :is(h1, h2, h3, h4, h5, h6) { color: inherit !important; line-height: 1.2 !important; margin-top: 0 !important; }
+body.theme-mono :is(.feature-hero-sub, .hero-subtitle, .fav-section .sub) { font-size: var(--text-base) !important; line-height: 23px !important; color: var(--on-light-2) !important; }
+body.theme-mono p { color: var(--on-light-2) !important; line-height: 1.5 !important; }
+body.theme-mono :is(.text-muted, .small.text-muted, .form-text) { color: var(--on-light-3) !important; }
+body.theme-mono :is(.text-light, .text-white, .text-info, .text-primary, .text-warning, .text-success, .text-secondary) { color: var(--color-1) !important; }
+body.theme-mono .text-danger { color: var(--danger-on-light) !important; }
+body.theme-mono a { color: inherit !important; }
+
+/* IBM Plex Mono figures */
+body.theme-mono :is(.business-opportunity-card .row.g-2 strong, .business-opportunity-card .row.g-2 span[class*="text-"],
+    .r3d-kpi strong, .syn-score-top strong, .syn-kpis strong, .syn-rev strong, .syn-sc-val, .stat-value, .revenue-value, .fav-summary strong,
+    .fav-meta, .fav-score, .syn-sources, .syn-fine, .syn-kind, .r3d-sub, .r3d-confidence, .r3d-legend, .r3d-hint, .user-email,
+    .map-status, .footer-bottom, .business-opportunity-card .border-top) {
+    font-family: var(--font-mono) !important; letter-spacing: 0 !important;
+}
+body.theme-mono :is(.fav-meta, .syn-fine, .syn-kind, .r3d-sub, .r3d-confidence, .r3d-legend, .r3d-hint, .footer-bottom,
+    .business-opportunity-card .border-top) { font-size: var(--text-xs) !important; }
+body.theme-mono :is(.business-opportunity-card .row.g-2 strong, .business-opportunity-card .row.g-2 span[class*="text-"]) { font-size: var(--text-base) !important; }
+body.theme-mono :is(.r3d-kpi strong, .syn-kpis strong, .stat-value) { font-size: var(--text-lg) !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; background: none !important; }
+
+/* ---------------------------------------------------- navigation and sidebar ---- */
+body.theme-mono .navbar-base { background: var(--color-2) !important; border-bottom: var(--space-1) solid var(--line-light) !important; backdrop-filter: none !important; }
+body.theme-mono .navbar-base .nav-link { color: var(--on-light-2) !important; background: transparent !important; }
+body.theme-mono .navbar-base .nav-link:hover { color: var(--color-1) !important; }
+body.theme-mono :is(.navbar-brand, .navbar-brand i, .sidebar-brand, .sidebar-brand i) { color: var(--color-1) !important; }
+body.theme-mono .navbar-toggler { border: var(--space-1) solid var(--color-1) !important; border-radius: var(--radius-md) !important; }
+body.theme-mono .navbar-toggler-icon { filter: invert(1) !important; }
+
+body.theme-mono .dashboard-sidebar { background: var(--color-2) !important; border-right: var(--space-1) solid var(--line-light) !important; }
+body.theme-mono .sidebar-brand { border-bottom: var(--space-1) solid var(--line-light) !important; }
+body.theme-mono .sidebar-link {
+    color: var(--on-light-2) !important; background: transparent !important; border: 0 !important;
+    border-radius: var(--radius-md) !important; margin: var(--space-1) var(--space-4) !important; transition: none !important;
+}
+body.theme-mono .sidebar-link i { color: inherit !important; }
+body.theme-mono .sidebar-link:hover { color: var(--color-1) !important; outline: var(--space-1) solid var(--line-light) !important; }
+body.theme-mono .sidebar-link.active { color: var(--color-2) !important; background: var(--color-1) !important; }
+body.theme-mono .sidebar-footer { border-top: var(--space-1) solid var(--line-light) !important; background: transparent !important; }
+body.theme-mono :is(.sidebar-user, .sidebar-user-name, .sidebar-user-chevron) { color: var(--color-1) !important; }
+body.theme-mono .sidebar-user-avatar { background: var(--color-2) !important; color: var(--color-1) !important; border: var(--space-1) solid var(--color-1) !important; }
+
+/* -------------------------------------------------------------- surfaces ---- */
+/* Cards and panels: white with a hairline; everything inside reads black. */
+body.theme-mono :is(.feature-tile, .business-opportunity-card, .syn-compare, .fav-card, .profile-card, .contact-card,
+    .modal-content, .dropdown-menu, .sidebar-user-menu, .alert-success, .alert-info, .alert-warning, .alert-light,
+    .recs-panel, .syn-panel, .fav-section, .dashboard-analytics-panel, .static-panel, .dashboard-form-panel, .recs-toolbar, .card) {
+    background: var(--color-2) !important; color: var(--color-1) !important;
+    border: var(--space-1) solid var(--line-light) !important; border-radius: var(--radius-md) !important;
+    backdrop-filter: none !important; transition: none !important; transform: none !important;
+}
+body.theme-mono :is(.feature-tile, .business-opportunity-card, .syn-compare, .fav-card, .profile-card, .contact-card,
+    .modal-content, .dropdown-menu, .sidebar-user-menu, .alert-success, .alert-info, .alert-warning, .alert-light) * {
+    color: inherit !important; border-color: var(--line-light) !important;
+}
+body.theme-mono :is(.feature-tile, .business-opportunity-card, .syn-compare, .fav-card, .profile-card, .contact-card, .modal-content, .syn-panel)
+    :is(p, li, small, .small, .text-muted, .fav-addr, .fav-meta, .card-desc, .syn-fine, .field-hint, .tile-features li, .syn-compare-note,
+        .syn-sources b, .syn-pick small, .fav-summary span) { color: var(--on-light-2) !important; }
+body.theme-mono :is(.feature-tile, .business-opportunity-card, .fav-card, .profile-card, .contact-card, .syn-compare, .syn-panel)
+    :is(.row.g-2, .syn-card, .syn-rev > div, .syn-kpis > div, .syn-message, .fav-summary, .stat-card, .syn-pick, .profile-card-header) {
+    background: transparent !important; border: var(--space-1) solid var(--line-light) !important; border-radius: var(--radius-md) !important;
+}
+body.theme-mono .business-opportunity-card .card-header { background: transparent !important; border-width: 0 0 var(--space-1) 0 !important; border-radius: 0 !important; }
+body.theme-mono :is(.syn-rev-adj, .syn-kpi-adj) { border: var(--space-1) solid var(--color-1) !important; }
+body.theme-mono :is(.feature-tile, .business-opportunity-card, .fav-card):hover { border-color: var(--color-1) !important; }
+body.theme-mono .panel-header { background: transparent !important; border-bottom: var(--space-1) solid var(--line-light) !important; }
+
+/* Badges and tags: outlined, radius-sm; the rank pill is solid black. */
+body.theme-mono .badge, body.theme-mono :is(.feature-hero-badge, .recs-chip, .fav-badge, #reports-count) {
+    background: transparent !important; color: var(--color-1) !important; border: var(--space-1) solid var(--color-1) !important;
+    border-radius: var(--radius-sm) !important; padding: var(--space-1) var(--space-2) !important;
+}
+body.theme-mono :is(.feature-hero-badge .dot, .badge-dot) { background: var(--color-1) !important; }
+body.theme-mono .business-opportunity-card .card-header .badge.rounded-pill { background: var(--color-1) !important; color: var(--color-2) !important; }
+body.theme-mono :is(.tile-icon, .recs-icon, .card-icon, .icon-teal, .icon-purple, .icon-blue) {
+    background: var(--color-1) !important; color: var(--color-2) !important; border: 0 !important; border-radius: var(--radius-md) !important;
+}
+body.theme-mono :is(.tile-icon, .recs-icon, .card-icon, .icon-teal, .icon-purple, .icon-blue) * { color: var(--color-2) !important; }
+
+/* ----------------------------------------------------------------- buttons ---- */
+/* Primary = solid black, secondary = outlined black; hover inverts. One primary per view. */
+body.theme-mono .btn, body.theme-mono :is(.tile-action, .recs-refresh, .fav-open, .r3d-table-toggle, .r3d-tab, .fav-chip) {
+    border-radius: var(--radius-md) !important; transition: none !important; transform: none !important;
+}
+body.theme-mono :is(.btn-primary-blue, .btn-feature-primary, .btn-primary, .hero-cta, .btn-generate-report, .btn-save-profile,
+    .submit-btn-contact, .btn-go-login, .recs-refresh, .btn-success, .chatbot-send-btn) {
+    background: var(--color-1) !important; background-image: none !important; color: var(--color-2) !important; border: var(--space-1) solid var(--color-1) !important;
+}
+body.theme-mono :is(.btn-feature-outline, .tile-action, .btn-outline-light, .btn-outline-primary, .btn-outline-info, .btn-outline-secondary,
+    .btn-back-dashboard, .btn-map-control, .btn-signout, .hero-cta.btn-outline-light, .btn-dark, .fav-chip, .fav-open,
+    .business-opportunity-card .btn, .feature-tile .btn) {
+    background: transparent !important; background-image: none !important; color: var(--color-1) !important; border: var(--space-1) solid var(--color-1) !important;
+}
+body.theme-mono :is(.btn-primary-blue, .btn-feature-primary, .btn-primary, .hero-cta, .btn-generate-report, .btn-save-profile,
+    .submit-btn-contact, .btn-go-login, .recs-refresh, .btn-success, .chatbot-send-btn):hover {
+    background: var(--color-2) !important; color: var(--color-1) !important;
+}
+body.theme-mono :is(.btn-feature-outline, .tile-action, .btn-outline-light, .btn-outline-primary, .btn-outline-info, .btn-outline-secondary,
+    .btn-back-dashboard, .btn-map-control, .btn-signout, .hero-cta.btn-outline-light, .btn-dark, .fav-chip, .fav-open,
+    .business-opportunity-card .btn, .feature-tile .btn):hover {
+    background: var(--color-1) !important; color: var(--color-2) !important;
+}
+body.theme-mono .fav-chip.on { background: var(--color-1) !important; color: var(--color-2) !important; }
+body.theme-mono :is(.btn, button, .tile-action, .fav-open):active { opacity: 0.8 !important; }
+body.theme-mono :is(.btn, button, .fav-open, input, select, textarea):disabled,
+body.theme-mono .btn.disabled { opacity: 0.4 !important; cursor: not-allowed !important; }
+body.theme-mono :is(.btn, button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid currentColor !important; outline-offset: 2px !important;
+}
+body.theme-mono :is(.btn i, .tile-action i, .recs-refresh i, .hero-cta i) { color: inherit !important; }
+body.theme-mono :is(.fav-remove, .item-danger, .danger-zone .btn) { color: var(--danger-on-light) !important; }   /* destructive */
+
+/* ------------------------------------------------------------------- forms ---- */
+body.theme-mono :is(.form-control, .form-select, .field-input, .biz-input, .biz-select, .recs-select, .syn-select, .chatbot-input, input[type="search"]) {
+    background-color: var(--color-2) !important; color: var(--color-1) !important;
+    border: var(--space-1) solid var(--color-1) !important; border-radius: var(--radius-md) !important; font-size: var(--text-sm) !important;
+}
+body.theme-mono :is(.form-control, .field-input, .chatbot-input, input)::placeholder { color: var(--on-light-3) !important; }
+body.theme-mono :is(.btn, button, input, select, textarea, .form-control, .form-select):focus { box-shadow: none !important; }
+body.theme-mono .form-select option { background: var(--color-2) !important; color: var(--color-1) !important; }
+body.theme-mono input[type="checkbox"] { accent-color: var(--color-1) !important; border-radius: var(--radius-sm) !important; }
+body.theme-mono :is(label, .form-label) { color: var(--on-light-2) !important; }
+
+/* ------------------------------------------------------------------ alerts ---- */
+body.theme-mono :is(.alert-success, .alert-info, .alert-warning, .alert-light) { border-color: var(--color-1) !important; }
+body.theme-mono .alert-danger {
+    background: var(--color-2) !important; color: var(--danger-on-light) !important; border: var(--space-1) solid var(--danger-on-light) !important; border-radius: var(--radius-md) !important;
+}
+body.theme-mono :is(.dropdown-item, .sidebar-user-menu-item) { color: var(--color-1) !important; background: transparent !important; }
+body.theme-mono :is(.dropdown-item, .sidebar-user-menu-item):hover { background: var(--color-1) !important; color: var(--color-2) !important; }
+
+/* ------------------------------------------------- recommendations layout ---- */
+body.theme-mono .business-recommendations-section .recs-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)) !important; gap: var(--space-8) !important;
+}
+body.theme-mono .business-opportunity-card .card-header { flex-wrap: wrap !important; gap: var(--space-4) !important; padding: var(--space-5) var(--space-6) !important; }
+body.theme-mono .business-opportunity-card .card-header strong { max-width: none !important; white-space: normal !important; overflow: visible !important; }
+body.theme-mono .business-opportunity-card .card-body { padding: var(--space-6) var(--space-7) var(--space-7) !important; }
+body.theme-mono .business-opportunity-card .row.g-2 { padding: var(--space-5) var(--space-3) !important; margin: var(--space-5) 0 !important; }
+body.theme-mono .business-opportunity-card ul li { margin-bottom: var(--space-3) !important; }
+body.theme-mono .feature-grid { gap: var(--space-8) !important; }
+body.theme-mono .feature-tile { padding: var(--space-8) !important; }
+
+/* ---------------------------------------------------------------- synergy ---- */
+body.theme-mono :is(.syn-level-strong, .syn-level-moderate, .syn-level-limited, .syn-level-weak, .syn-score) { --syn: currentColor; }
+body.theme-mono .syn-score-top em { background: transparent !important; color: inherit !important; border: var(--space-1) solid currentColor !important; border-radius: var(--radius-sm) !important; font-style: normal !important; }
+body.theme-mono :is(.syn-bar, .syn-sc-track) { background: var(--line-light) !important; border-radius: var(--radius-sm) !important; }
+body.theme-mono :is(.syn-bar i, .syn-sc-track i) { background: var(--color-1) !important; border-radius: var(--radius-sm) !important; }
+body.theme-mono .syn-sc-base .syn-sc-track i { background: repeating-linear-gradient(135deg, rgba(0, 0, 0, .55) 0 6px, transparent 6px 12px) !important; }
+body.theme-mono .syn-panel :is(.syn-title i, .syn-area, .syn-details summary, .syn-kpi-adj strong, .syn-kpi-adj small, .syn-sc-val small, .syn-kpis strong, .syn-sc-val) { color: var(--color-1) !important; }
+body.theme-mono .syn-panel :is(.syn-sub, .syn-kpis span, .syn-kpis small, .syn-sc-name, .syn-factors small, .syn-message) { color: var(--on-light-2) !important; }
+body.theme-mono .syn-badge { background: transparent !important; color: var(--color-1) !important; border: var(--space-1) solid var(--color-1) !important; border-radius: var(--radius-sm) !important; }
+body.theme-mono .syn-compare { padding: var(--space-6) !important; gap: var(--space-5) !important; }
+body.theme-mono .syn-details summary { text-decoration: underline !important; text-underline-offset: 3px !important; }
+body.theme-mono .syn-risk { color: inherit !important; }
+body.theme-mono :is(.syn-compare-note, .syn-details p, .syn-details li) { font-size: var(--text-sm) !important; }
+
+/* ------------------------------------------- business analytics 3D graph (dark) ---- */
+body.theme-mono .r3d {
+    --r3d-cyan: #FFFFFF; --r3d-violet: #FFFFFF; --r3d-magenta: #FFFFFF;
+    background: var(--color-1) !important; color: var(--color-2) !important; border: var(--space-1) solid var(--color-1) !important;
+    border-radius: var(--radius-md) !important; padding: var(--space-6) !important;
+}
+body.theme-mono .r3d :is(p, .r3d-area-name, .r3d-title, .r3d-title i, .r3d-kpi strong) { color: var(--color-2) !important; }
+body.theme-mono .r3d :is(.r3d-sub, .r3d-kpi span, .r3d-kpi small, .r3d-confidence, .r3d-legend, .r3d-hint, .r3d-badge) { color: var(--on-dark-2) !important; }
+body.theme-mono .r3d .r3d-chip { background: transparent !important; color: var(--on-dark-2) !important; border: var(--space-1) solid var(--line-dark) !important; border-radius: var(--radius-sm) !important; }
+body.theme-mono .r3d-kpi { background: transparent !important; border: var(--space-1) solid var(--line-dark) !important; border-radius: var(--radius-md) !important; }
+body.theme-mono .r3d-tabs { background: transparent !important; border: var(--space-1) solid var(--line-dark) !important; border-radius: var(--radius-md) !important; }
+body.theme-mono .r3d-tab { color: var(--on-dark-2) !important; background: transparent !important; border: 0 !important; }
+body.theme-mono .r3d-tab[aria-selected="true"] { background: var(--color-2) !important; color: var(--color-1) !important; }
+body.theme-mono .r3d-table-toggle { background: transparent !important; color: var(--color-2) !important; border: var(--space-1) solid var(--color-2) !important; }
+body.theme-mono .r3d-table-toggle:hover { background: var(--color-2) !important; color: var(--color-1) !important; }
+body.theme-mono .r3d-stage { background: var(--color-1) !important; border: var(--space-1) solid var(--line-dark) !important; border-radius: var(--radius-md) !important; }
+body.theme-mono .r3d-tip { background: var(--color-2) !important; color: var(--color-1) !important; border-radius: var(--radius-md) !important; }
+
+/* --------------------------------------------------------------------- map ---- */
+body.theme-mono :is(.dynamic-map-top-bar, .dynamic-map-footer, .search-overlay-compact, .legend-compact, .map-border-controls) {
+    background: var(--color-2) !important; border-color: var(--line-light) !important; color: var(--color-1) !important;
+}
+body.theme-mono .legend-compact .badge { border-color: var(--line-light) !important; }
+body.theme-mono .leaflet-container { background: var(--color-1) !important; }
+body.theme-mono :is(.leaflet-bar, .leaflet-control-layers) { border: var(--space-1) solid var(--color-1) !important; border-radius: var(--radius-md) !important; overflow: hidden !important; }
+body.theme-mono .leaflet-bar a { background: var(--color-2) !important; color: var(--color-1) !important; border-color: var(--line-light) !important; }
+body.theme-mono .leaflet-bar a:hover { background: var(--color-1) !important; color: var(--color-2) !important; }
+body.theme-mono :is(.leaflet-popup-content-wrapper, .leaflet-popup-tip) { background: var(--color-2) !important; color: var(--color-1) !important; border-radius: var(--radius-md) !important; }
+body.theme-mono .leaflet-control-attribution { background: rgba(255, 255, 255, .8) !important; color: var(--on-light-2) !important; }
+
+/* ----------------------------------------------------------- hearts (favorites) ---- */
+body.theme-mono .fav-btn { background: var(--color-2) !important; color: var(--color-1) !important; border: var(--space-1) solid var(--color-1) !important; transition: none !important; transform: none !important; }
+body.theme-mono :is(.fav-btn:hover, .fav-btn.active) { background: var(--color-1) !important; color: var(--color-2) !important; }
+body.theme-mono .fav-btn.active i { color: var(--color-2) !important; }
+
+/* ---------------------------------------------------------------- favorites page ---- */
+body.theme-mono .fav-section { padding: var(--space-8) !important; }
+body.theme-mono .fav-section h2 i { color: var(--color-1) !important; }
+body.theme-mono .fav-grid { gap: var(--space-6) !important; }
+body.theme-mono .fav-card { padding: var(--space-6) !important; }
+body.theme-mono .fav-analysis { border: var(--space-1) solid var(--color-1) !important; border-radius: var(--radius-sm) !important; color: var(--color-1) !important; }
+body.theme-mono .fav-an-stale { border-style: dashed !important; }
+body.theme-mono .fav-an-none { border-style: dotted !important; color: var(--on-light-3) !important; }
+body.theme-mono :is(.fav-empty, .fav-empty p) { color: var(--on-light-2) !important; }
+body.theme-mono :is(.fav-gate i, .fav-empty i, .fav-search-wrap i) { color: var(--color-1) !important; }
+
+/* ------------------------------------------------------------------ profile ---- */
+body.theme-mono .profile-page h1 i { color: inherit !important; }
+body.theme-mono .profile-page :is(h1, h1 + p) { color: var(--color-1) !important; }
+body.theme-mono .profile-page h1 + p { color: var(--on-light-3) !important; }
+body.theme-mono .avatar-ring { background: var(--color-1) !important; }
+body.theme-mono .strength-bar-fill { background: var(--color-1) !important; }
+body.theme-mono .danger-zone { border-color: var(--danger-on-light) !important; }
+
+/* ---------------------------------------------------------------- chatbot ---- */
+body.theme-mono :is(.chat-fab-btn, .chatbot-toggle-btn) { background: var(--color-1) !important; color: var(--color-2) !important; border: var(--space-1) solid var(--color-2) !important; }
+body.theme-mono :is(.chat-fab-btn, .chatbot-toggle-btn) i { color: var(--color-2) !important; }
+body.theme-mono :is(.chatbot-sidebar, .chatbot-container) { background: var(--color-2) !important; border-color: var(--line-light) !important; color: var(--color-1) !important; }
+body.theme-mono .chatbot-header { background: var(--color-2) !important; border-bottom: var(--space-1) solid var(--line-light) !important; color: var(--color-1) !important; }
+
+/* ------------------------------------------------------------------ footer ---- */
+body.theme-mono .footer-base { background: var(--color-2) !important; border-top: var(--space-1) solid var(--line-light) !important; }
+body.theme-mono :is(.footer-link, .footer-tagline, .footer-bottom) { color: var(--on-light-3) !important; }
+body.theme-mono .footer-link:hover { color: var(--color-1) !important; }
+
+/* ------------------------------------------- headline style (signal-a.studio reference) ---- */
+/* Uppercase display type mixing a condensed light serif with heavy grotesk emphasis (<strong>),
+   and small uppercase mono labels on thin rules. Deliberately overrides DESIGN.md's sentence-case /
+   300-400 rule for headings and labels. Each rule also targets descendants (except icons),
+   because the resets above apply to every element and would otherwise beat inheritance. */
+body.theme-mono :is(.feature-hero-title, .hero-title, .contact-title, .dashboard-title, .recommendations-title, .r3d-title,
+    .syn-title, .fav-section h2, .profile-page h1, .map-top-bar-title, .panel-header h5),
+body.theme-mono :is(.feature-hero-title, .hero-title, .contact-title, .dashboard-title, .recommendations-title, .r3d-title,
+    .syn-title, .fav-section h2, .profile-page h1, .map-top-bar-title, .panel-header h5) :not(i, [class*="fa-"], strong, [class*="-sub"]) {
+    font-family: var(--font-serif-display) !important; font-weight: 400 !important; text-transform: uppercase !important;
+    letter-spacing: -0.01em !important; line-height: 0.95 !important;
+}
+/* Hero headings scale with their own container, so they always fit the space they have. */
+body.theme-mono :is(.feature-hero-title, .hero-title) {
+    font-size: clamp(40px, 10cqi, 120px) !important; line-height: 0.9 !important; color: var(--color-1) !important;
+    -webkit-text-fill-color: currentColor !important; background: none !important; overflow-wrap: break-word !important; max-width: 100% !important;
+}
+body.theme-mono :is(.contact-title, .dashboard-title, .recommendations-title, .r3d-title, .syn-title, .fav-section h2, .profile-page h1) {
+    font-size: var(--text-xl) !important;
+}
+body.theme-mono :is(.feature-hero-title, .hero-title, .contact-title, .dashboard-title, .recommendations-title, .r3d-title,
+    .syn-title, .fav-section h2, .profile-page h1) strong {
+    font-family: var(--font-heavy) !important; font-weight: 800 !important; text-transform: uppercase !important; letter-spacing: -0.035em !important;
+}
+body.theme-mono :is(.feature-tile h3, .fav-card h3, .business-opportunity-card .card-header strong, .profile-card-header h2,
+    .profile-card-header h3, .syn-pick strong, .navbar-brand span, .sidebar-brand span, .footer-brand),
+body.theme-mono :is(.feature-tile h3, .fav-card h3, .business-opportunity-card .card-header strong, .profile-card-header h2,
+    .profile-card-header h3, .syn-pick strong, .navbar-brand span, .sidebar-brand span, .footer-brand) :not(i, [class*="fa-"]) {
+    font-family: var(--font-heavy) !important; font-weight: 800 !important; text-transform: uppercase !important;
+    letter-spacing: -0.015em !important; line-height: 1.05 !important;
+}
+body.theme-mono :is(.feature-tile h3, .fav-card h3, .business-opportunity-card .card-header strong) { font-size: var(--text-base) !important; }
+body.theme-mono :is(.navbar-base .nav-link, .sidebar-link, label, .form-label, .badge, [class*="-label"], [class*="-chip"],
+    .feature-hero-badge, .fav-cat, .fav-analysis, .fav-summary-label, .r3d-kpi span, .r3d-tab, .syn-pick-label, .stat-label,
+    .btn, .tile-action, .recs-refresh, .fav-open, .r3d-table-toggle, .syn-score-top span, .syn-score-top em,
+    .btn-feature-primary, .btn-feature-outline, .hero-cta, .business-opportunity-card .row.g-2 div > div:first-child),
+body.theme-mono :is(.navbar-base .nav-link, .sidebar-link, label, .form-label, .badge, [class*="-label"], [class*="-chip"],
+    .feature-hero-badge, .fav-cat, .fav-analysis, .fav-summary-label, .r3d-kpi span, .r3d-tab, .syn-pick-label, .stat-label,
+    .btn, .tile-action, .recs-refresh, .fav-open, .r3d-table-toggle, .syn-score-top span, .syn-score-top em,
+    .btn-feature-primary, .btn-feature-outline, .hero-cta, .business-opportunity-card .row.g-2 div > div:first-child) :not(i, [class*="fa-"]) {
+    font-family: var(--font-mono) !important; font-size: var(--text-xs) !important; font-weight: 400 !important;
+    text-transform: uppercase !important; letter-spacing: 0.04em !important;
+}
+body.theme-mono .navbar-base .nav-link { border-bottom: var(--space-1) solid var(--line-light) !important; border-radius: 0 !important; padding-bottom: var(--space-2) !important; }
+body.theme-mono .navbar-base .nav-link:hover { border-bottom-color: var(--color-1) !important; }
+
+}
+
+/* Outside the layer – nothing else styles these. */
+/* Monochrome satellite (main.js addMonoBaseLayers): MapTiler imagery, desaturated and darkened … */
+.leaflet-layer.mono-sat { filter: grayscale(1) brightness(0.42) contrast(1.15); }
+/* … with MapTiler Toner (roads, building outlines, labels) inverted to white and screen-blended.
+   report-generator.js reads these computed filter / blend values when it captures the PDF map. */
+.leaflet-layer.mono-lines { filter: invert(1) grayscale(1) brightness(0.9); mix-blend-mode: screen; opacity: 0.72; }
+/* "Save this location" control on the map */
+.mono-fav-control { background: #FFFFFF; border: 1px solid #000000; border-radius: 10px; color: #000000; display: flex; align-items: center; gap: 8px;
+                    padding: 5px 10px 5px 5px; font: 400 13px/1 'IBM Plex Mono', ui-monospace, monospace; max-width: min(60vw, 320px); }
+.mono-fav-control .fav-btn { position: static; }
+.mono-fav-control span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Map pins are coloured PNGs: shown in greyscale. */
+body.theme-mono .leaflet-marker-pane img.leaflet-marker-icon { filter: grayscale(1) brightness(1.5) contrast(1.2); }

@@ -22,7 +22,14 @@ class Report(models.Model):
     completed_stages = models.JSONField(default=list)
     error_message = models.CharField(max_length=300, blank=True, default='')
 
+    SINGLE, FAVORITES = 'single', 'favorites'
+    KIND_CHOICES = [(SINGLE, 'Single location'), (FAVORITES, 'Favorites comparison')]
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=SINGLE)
+    # Favorites reports: the saved places (name, category, lat/lon, address) analysed.
+    places = models.JSONField(default=list, blank=True)
+
     location_name = models.CharField(max_length=200)
+    address = models.CharField(max_length=255, blank=True, default='')
     latitude = models.FloatField()
     longitude = models.FloatField()
     radius_m = models.PositiveIntegerField()

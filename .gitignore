@@ -52,3 +52,7 @@ test_gemini.py
 
 # Node (frontend tests)
 node_modules/
+
+# OpenStreetMap area cache (CACHES["overpass"])
+.cache/
+node_modules/

@@ -35,6 +35,17 @@ STAGES = [
     ('ready', 'Report ready'),
 ]
 STAGE_KEYS = [k for k, _ in STAGES]
+FAVORITES_STAGES = [
+    ('collect', 'Analysing your saved places'),
+    ('writing', 'Comparing places and building SWOT'),
+    ('pdf', 'Creating PDF'),
+    ('validate', 'Validating PDF'),
+    ('ready', 'Report ready'),
+]
+
+
+def _stages(report):
+    return FAVORITES_STAGES if report.kind == Report.FAVORITES else STAGES
 STALE_AFTER = timedelta(minutes=10)
 IST = ZoneInfo('Asia/Kolkata')
 PLATFORM_NAME = 'Crowd Heatmap & Business Intelligence Platform'
@@ -66,8 +77,9 @@ def fail_stale():
         status=Report.FAILED, error_message='Report generation was interrupted. Please try again.', screenshot=None)
 
 
-def create_report(owner_id, request_data, screenshot_png, capture_meta):
+def create_report(owner_id, request_data, screenshot_png, capture_meta, kind=None, places=None):
     """Admit and queue a report, then start generating it. Raises ReportLimitError."""
+    kind = kind or Report.SINGLE
     with _admission_lock:
         purge_expired()
         fail_stale()
@@ -85,9 +97,12 @@ def create_report(owner_id, request_data, screenshot_png, capture_meta):
             owner_id=owner_id,
             source=request_data['source'],
             status=Report.QUEUED,
+            kind=kind,
+            places=places or [],
             stage='collect',
             completed_stages=['capture'] if screenshot_png else [],
             location_name=request_data['name'],
+            address=request_data.get('address', ''),
             latitude=request_data['latitude'],
             longitude=request_data['longitude'],
             radius_m=request_data['radius_m'],
@@ -123,8 +138,9 @@ def _mark(report, stage):
     """Record `stage` as finished and the next one as current."""
     if stage not in report.completed_stages:
         report.completed_stages = report.completed_stages + [stage]
-    idx = STAGE_KEYS.index(stage)
-    report.stage = STAGE_KEYS[idx + 1] if idx + 1 < len(STAGE_KEYS) else stage
+    keys = [k for k, _ in _stages(report)]
+    idx = keys.index(stage)
+    report.stage = keys[idx + 1] if idx + 1 < len(keys) else stage
     report.save(update_fields=['completed_stages', 'stage', 'status', 'updated_at'])
 
 
@@ -137,7 +153,7 @@ def run_generation(report_id):
     report.status = Report.RUNNING
     report.save(update_fields=['status', 'updated_at'])
     try:
-        pdf, pages, ai_used = _generate(report)
+        pdf, pages, ai_used = (_generate_favorites if report.kind == Report.FAVORITES else _generate)(report)
     except CollectionError as exc:
         _fail(report, str(exc))
     except PDFRenderError as exc:
@@ -187,9 +203,25 @@ def _generate(report):
     name_probe = ' '.join(report.location_name.split())[:20]
     validate_pdf(pdf, required_phrases=[
         'Business Intelligence Report', 'Executive summary', 'Crowd heatmap analysis', 'Revenue forecast',
-        'Implementation roadmap', 'Risk analysis', name_probe])
+        'Business Synergy Opportunity Analysis', 'Implementation roadmap', 'Risk analysis', name_probe])
     _mark(report, 'validate')
     return pdf, pages, texts['ai_status'] != 'unavailable'
+
+
+def _generate_favorites(report):
+    from . import favorites_report
+    results = [favorites_report.analyse_place(place) for place in report.places]
+    if not any(r['status'] == 'ok' for r in results):
+        raise CollectionError(results[0]['reason'] if results else 'No saved places to analyse.')
+    _mark(report, 'collect')
+    context = favorites_report.build_context(report, results, _fmt_time(timezone.now()))
+    _mark(report, 'writing')
+    pdf, pages = favorites_report.render(context)
+    _mark(report, 'pdf')
+    validate_pdf(pdf, required_phrases=['Favorites Comparison Report', 'Comparison of saved places']
+                 + [r['place']['name'].split()[0][:15] for r in results if r['status'] == 'ok'][:3])
+    _mark(report, 'validate')
+    return pdf, pages, False
 
 
 def _model_rows():
@@ -207,7 +239,8 @@ def _fmt_time(dt):
 
 def _kpis(s):
     rev, comp, feas, heat, rec = (s.get(k) or {} for k in ('revenue', 'competition', 'feasibility', 'heatmap', 'recommendation'))
-    kpis = [{'label': 'Mapped features within 2 km', 'value': f"{s['pois'].get('in_radius', 0):,}",
+    radius_km = f"{s['location']['radius_m'] / 1000:g} km"
+    kpis = [{'label': f'Mapped features within {radius_km}', 'value': f"{s['pois'].get('in_radius', 0):,}",
              'kind': 'observed', 'kind_label': 'Observed', 'note': 'OpenStreetMap'}]
     if not heat.get('placeholder_used'):
         kpis.append({'label': 'High-intensity sectors', 'value': f"{heat['counts']['high']} of 9", 'kind': 'observed',
@@ -226,12 +259,12 @@ def _kpis(s):
                      'kind_label': 'Estimate', 'note': 'Revenue-engine index, not a probability'})
     if comp.get('status') == 'ok':
         kpis.append({'label': 'Competitors within 1 km', 'value': str(comp['within_1000_m']), 'kind': 'observed',
-                     'kind_label': 'Observed', 'note': f"{comp['count']} within 2 km"})
+                     'kind_label': 'Observed', 'note': f"{comp['count']} within {radius_km}"})
     return kpis
 
 
 def build_context(report, snapshot, texts, risks, charts, flows):
-    from business_intelligence.analysis import HIGH_SECTOR_MIN_POIS, MEDIUM_SECTOR_MIN_POIS
+    from business_intelligence.analysis import HIGH_DENSITY_PER_KM2, MEDIUM_DENSITY_PER_KM2
     from datetime import datetime
 
     now = timezone.now()
@@ -261,6 +294,7 @@ def build_context(report, snapshot, texts, risks, charts, flows):
         'meta': {
             'platform': PLATFORM_NAME,
             'location_name': report.location_name,
+            'address': report.address,
             'latitude': report.latitude,
             'longitude': report.longitude,
             'radius_m': report.radius_m,
@@ -286,8 +320,8 @@ def build_context(report, snapshot, texts, risks, charts, flows):
         'group_label': roadmap['group_label'],
         'model_rows': _model_rows(),
         'ring_width': round(report.radius_m / 3),
-        'thresholds': {'high': HIGH_SECTOR_MIN_POIS, 'medium': MEDIUM_SECTOR_MIN_POIS,
-                       'high_minus_one': HIGH_SECTOR_MIN_POIS - 1},
+        'thresholds': {'high': HIGH_DENSITY_PER_KM2, 'medium': MEDIUM_DENSITY_PER_KM2,
+                       'high_minus_one': HIGH_DENSITY_PER_KM2 - 1},
     }
 
 
@@ -298,7 +332,7 @@ def build_context(report, snapshot, texts, risks, charts, flows):
 def status_payload(report):
     done = set(report.completed_stages or [])
     stages = []
-    for key, label in STAGES:
+    for key, label in _stages(report):
         if key == 'capture' and key not in done:
             state = 'skipped'
         elif key in done:
@@ -317,6 +351,7 @@ def status_payload(report):
         'stage': report.stage,
         'stages': stages,
         'location': report.location_name,
+        'kind': report.kind,
         'heatmap_captured': 'capture' in done,
         'created_at': report.created_at.isoformat(),
         'expires_at': report.expires_at.isoformat(),

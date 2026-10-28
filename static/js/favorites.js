@@ -44,6 +44,22 @@
         };
     }
 
+    /**
+     * Favorite payload for a selected map location (search, map click, GPS, startup form, pin).
+     * The key ignores the name, so one spot (~11 m) is saved once whatever it was called.
+     */
+    function locationPayload(loc) {
+        const lat = Number(loc.lat ?? loc.latitude);
+        const lng = Number(loc.lng ?? loc.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return {
+            place_key: `geo:${lat.toFixed(4)}:${lng.toFixed(4)}:`,
+            name: String(loc.name || '').trim().slice(0, 200) || `Location ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+            category: String(loc.category || '').slice(0, 60), latitude: lat, longitude: lng,
+            address: String(loc.address || '').slice(0, 255),
+        };
+    }
+
     function heartHtml(payload) {
         if (payload.latitude == null || payload.longitude == null) return '';
         const key = placeKey(payload);
@@ -76,7 +92,8 @@
         }));
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || data.success === false) {
-            throw Object.assign(new Error(data.error || 'Request failed'), { status: resp.status });
+            const fallback = resp.status >= 500 ? `Server error (${resp.status}). Please try again shortly.` : `Request failed (${resp.status}).`;
+            throw Object.assign(new Error(data.error || fallback), { status: resp.status, code: data.code, data });
         }
         return data;
     }
@@ -125,7 +142,7 @@
         if (window.SupabaseAuth) window.SupabaseAuth.requireAuth('Favorites', run); else run();
     }, true); // capture: cards have inline onclick handlers that would otherwise run first
 
-    window.Favorites = { heartHtml, fromOverpass, refresh, load, toggle, placeKey };
+    window.Favorites = { heartHtml, fromOverpass, refresh, load, toggle, placeKey, locationPayload };
 
     // ---- /favorites/ page ---------------------------------------------------
     const page = document.getElementById('favorites-page');
@@ -134,24 +151,97 @@
     const $ = (id) => document.getElementById(id);
     let all = [];
     let activeCategory = '';
+    let query = '';
+    const summaries = new Map();   // favorite id -> top recommendation summary (or {error})
+    const selectedIds = new Set();  // favorites ticked for the comparison report
     let userPos = null;
 
     const osmLink = (p) => `https://www.openstreetmap.org/?mlat=${p.latitude}&mlon=${p.longitude}#map=17/${p.latitude}/${p.longitude}`;
     const label = (c) => esc((c || 'place').replace(/_/g, ' '));
 
+    /** Dashboard URL that selects the place, draws its 5 km circle and runs (or reuses) its analysis. */
+    function openUrl(f) {
+        return `/dashboard/?auto_map=true&lat=${Number(f.latitude)}&lon=${Number(f.longitude)}&name=${encodeURIComponent(f.name || '')}`;
+    }
+    const isLocation = (f) => /^geo:-?\d+\.\d{4}:-?\d+\.\d{4}:$/.test(f.place_key || '');
+    const savedOn = (iso) => {
+        const d = iso ? new Date(iso) : null;
+        return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    };
+    const ANALYSIS_LABEL = {
+        fresh: ['fav-an-fresh', 'Analysed · up to date'],
+        stale: ['fav-an-stale', 'Analysed · refreshes when opened'],
+        none: ['fav-an-none', 'Not analysed yet'],
+    };
+
+    function summaryHtml(f) {
+        const s = summaries.get(f.id);
+        if (!s) return (f.analysis && ['fresh', 'stale'].includes(f.analysis.status))
+            ? '<div class="fav-summary muted"><i class="fas fa-spinner fa-spin me-1"></i>Loading saved analysis…</div>' : '';
+        if (s.error) return '';
+        const inr = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v);
+        return `<div class="fav-summary">
+            <span class="fav-summary-label">Top opportunity</span>
+            <strong>${esc(s.name)}</strong>
+            <span>${inr(s.monthly)}/mo projected${s.synergy != null ? ` · synergy ${Number(s.synergy).toFixed(0)}/100` : ''}</span>
+        </div>`;
+    }
+
     function favCard(f) {
-        return `<article class="fav-card">
+        const [anClass, anText] = ANALYSIS_LABEL[(f.analysis || {}).status] || ['fav-an-none', 'Analysis status unknown'];
+        const date = savedOn(f.created_at);
+        return `<article class="fav-card" data-id="${f.id}">
             <div class="fav-card-top">
-                <span class="fav-cat">${label(f.category)}</span>
-                ${f.potential_score != null ? `<span class="fav-score">${f.potential_score}/100</span>` : ''}
+                <label class="fav-select" title="Include in the comparison report">
+                    <input type="checkbox" class="fav-select-box" data-id="${f.id}" ${selectedIds.has(f.id) ? 'checked' : ''}>
+                    <span class="fav-cat">${isLocation(f) && !f.category ? 'Location' : label(f.category)}</span>
+                </label>
+                ${f.potential_score != null ? `<span class="fav-score" title="Revenue-engine potential score">${f.potential_score}/100</span>` : ''}
             </div>
             <h3>${esc(f.name)}</h3>
-            <p class="fav-addr">${esc(f.address || `${f.latitude.toFixed(4)}, ${f.longitude.toFixed(4)}`)}</p>
+            ${f.address ? `<p class="fav-addr">${esc(f.address)}</p>` : ''}
+            <p class="fav-meta"><span><i class="fas fa-location-crosshairs"></i>${Number(f.latitude).toFixed(4)}, ${Number(f.longitude).toFixed(4)}</span>
+                ${date ? `<span><i class="far fa-calendar"></i>Saved ${esc(date)}</span>` : ''}</p>
+            <span class="fav-analysis ${anClass}">${anText}</span>
+            ${summaryHtml(f)}
             <div class="fav-actions">
-                <a href="${osmLink(f)}" target="_blank" rel="noopener noreferrer"><i class="fas fa-map-location-dot"></i> Map</a>
+                <a class="fav-open" href="${openUrl(f)}"><i class="fas fa-crosshairs"></i> Open location</a>
+                <a href="${osmLink(f)}" target="_blank" rel="noopener noreferrer" title="Open in OpenStreetMap"><i class="fas fa-up-right-from-square"></i> OSM</a>
                 <button type="button" class="fav-remove" data-id="${f.id}"><i class="fas fa-trash"></i> Remove</button>
             </div>
         </article>`;
+    }
+
+    /**
+     * For places whose area analysis is already cached, show the top recommendation and its
+     * projected revenue (same endpoint as the dashboard). Places never analysed are not fetched
+     * here: opening them runs the analysis. One request at a time.
+     */
+    let summariesRunning = false;
+    async function loadSummaries() {
+        if (summariesRunning) return;
+        summariesRunning = true;
+        try { await loadSummaryQueue(); } finally { summariesRunning = false; }
+    }
+
+    async function loadSummaryQueue() {
+        for (const f of all) {
+            if (summaries.has(f.id) || !f.analysis || !['fresh', 'stale'].includes(f.analysis.status)) continue;
+            try {
+                const res = await fetch('/api/location-recommendations/', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ latitude: f.latitude, longitude: f.longitude, location_name: f.name, limit: 1 }),
+                });
+                const data = await res.json();
+                const top = res.ok && data.recommendations && data.recommendations[0];
+                summaries.set(f.id, top ? { name: top.name, monthly: top.starting_monthly_revenue,
+                                            synergy: top.synergy ? top.synergy.score : null } : { error: true });
+            } catch (_e) {
+                summaries.set(f.id, { error: true });
+            }
+            const card = $('fav-list').querySelector(`.fav-card[data-id="${f.id}"]`);
+            if (card) card.outerHTML = favCard(f);
+        }
     }
 
     function recCard(r) {
@@ -170,11 +260,17 @@
         $('fav-chips').innerHTML = cats.length > 1
             ? ['', ...cats].map((c) => `<button type="button" class="fav-chip${c === activeCategory ? ' on' : ''}" data-cat="${esc(c)}">${c ? label(c) : 'All'}</button>`).join('')
             : '';
-        const shown = activeCategory ? all.filter((f) => f.category === activeCategory) : all;
+        const q = query.trim().toLowerCase();
+        const shown = all.filter((f) => (!activeCategory || f.category === activeCategory)
+            && (!q || `${f.name} ${f.address} ${f.category}`.toLowerCase().includes(q)));
         $('fav-count').textContent = all.length;
+        const search = $('fav-search');
+        if (search) search.closest('.fav-search-wrap').classList.toggle('d-none', all.length < 2);
         $('fav-list').innerHTML = shown.length ? shown.map(favCard).join('')
-            : `<div class="fav-empty"><i class="far fa-heart"></i><p>${all.length ? 'Nothing in this category.' : 'No favorites yet. Tap the heart on any place in the Popular Places results to save it here.'}</p>
-               <a class="btn btn-primary-blue btn-sm" href="/dashboard/">Explore places</a></div>`;
+            : all.length
+                ? `<div class="fav-empty"><p>No saved locations match${q ? ` “${esc(query)}”` : ' this category'}.</p></div>`
+                : `<div class="fav-empty"><i class="far fa-heart"></i><p>You haven’t saved any locations yet. Explore the heatmap and save locations you want to analyze later.</p>
+                   <a class="btn btn-primary-blue btn-sm" href="/dashboard/?auto_map=true">Explore the heatmap</a></div>`;
     }
 
     async function renderRecommendations() {
@@ -203,6 +299,7 @@
                 <span class="badge ${isReady ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-warning'} border font-monospace" style="font-size:0.7rem;">${isReady ? pagesStr : r.status}</span>
             </div>
             <h3>${esc(r.location_name)}</h3>
+            ${r.kind === 'favorites' ? '<p class="fav-addr"><i class="fas fa-layer-group me-1"></i>Saved places comparison</p>' : ''}
             <p class="fav-addr"><i class="fas fa-clock me-1 opacity-75"></i>${esc(dateStr)}</p>
             <div class="fav-actions mt-auto pt-2">
                 ${isReady ? `<button type="button" class="btn btn-primary-blue btn-sm w-100 download-report-btn" data-id="${r.id}"><i class="fas fa-download me-1"></i>Download PDF</button>` : `<span class="text-muted small">${esc(r.status)}</span>`}
@@ -254,33 +351,47 @@
         }
     }
 
-    async function downloadFavoritesReportPdf() {
-        const session = window.SupabaseAuth ? await window.SupabaseAuth.getSession() : null;
-        if (!session) { toast('Please sign in to download favorites report', 'error'); return; }
+    function updateExportButton() {
         const btn = $('btn-download-favs-report');
-        if (btn) btn.disabled = true;
+        if (!btn || btn.dataset.busy) return;
+        const n = selectedIds.size;
+        btn.innerHTML = `<i class="fas fa-file-pdf me-1"></i> ${n ? `Download Report for ${n} Selected` : 'Download All Favorites Report'}`;
+    }
+
+    // Full-detail comparison PDF: queued on the server, stored under "Generated Business Reports".
+    async function downloadFavoritesReportPdf() {
+        const btn = $('btn-download-favs-report');
+        const setBtn = (html) => { if (btn) btn.innerHTML = html; };
+        if (btn) { btn.disabled = true; btn.dataset.busy = '1'; }
         try {
-            const res = await fetch('/api/favorites/report/', {
-                headers: { 'Authorization': 'Bearer ' + session.access_token }
-            });
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                toast(data.error || 'Export failed', 'error');
-                return;
+            const body = selectedIds.size ? { ids: [...selectedIds] } : {};
+            setBtn('<i class="fas fa-spinner fa-spin me-1"></i> Starting report…');
+            let job;
+            try {
+                job = await api('/api/favorites/report/', { method: 'POST', body: JSON.stringify(body) });
+            } catch (err) {
+                if (err.status === 409 && err.data && err.data.report_id) job = { report_id: err.data.report_id };
+                else throw err;
             }
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'favorites-summary-report.pdf';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 30000);
+            const started = Date.now();
+            let status = job;
+            while (status.status !== 'succeeded') {
+                if (status.status === 'failed') throw new Error(status.error || 'Report generation failed.');
+                if (Date.now() - started > 8 * 60 * 1000) throw new Error('The report is taking longer than expected. It will appear in the list when ready.');
+                const active = (status.stages || []).find((st) => st.state === 'active');
+                setBtn(`<i class="fas fa-spinner fa-spin me-1"></i> ${esc(active ? active.label : 'Working')}…`);
+                await new Promise((r) => setTimeout(r, 2000));
+                status = await api(`/api/reports/${job.report_id}/status/`);
+            }
+            await downloadReportPdf(job.report_id);
+            toast(`Report ready (${status.page_count} pages). It is also saved under Generated Business Reports.`, 'success');
+            renderReports();
         } catch (err) {
-            toast(err.message, 'error');
+            toast(err.message || 'Export failed', 'error');
+            renderReports();
         } finally {
-            if (btn) btn.disabled = false;
+            if (btn) { btn.disabled = false; delete btn.dataset.busy; }
+            updateExportButton();
         }
     }
 
@@ -295,6 +406,8 @@
         $('fav-content').classList.remove('d-none');
         try { all = await load(); } catch (e) { toast(e.message, 'error'); }
         renderFavorites();
+        loadSummaries();
+        $('fav-search')?.addEventListener('input', (e) => { query = e.target.value; renderFavorites(); });
         await renderReports();
         await renderRecommendations();
         if (navigator.geolocation) { // refine picks around the user's current position, if they allow it
@@ -306,6 +419,13 @@
     }
 
     page.addEventListener('click', async (e) => {
+        const box = e.target.closest('.fav-select-box');
+        if (box) {
+            const id = Number(box.dataset.id);
+            if (box.checked) selectedIds.add(id); else selectedIds.delete(id);
+            updateExportButton();
+            return;
+        }
         const chip = e.target.closest('.fav-chip');
         if (chip) { activeCategory = chip.dataset.cat; renderFavorites(); return; }
         const rm = e.target.closest('.fav-remove');
@@ -313,6 +433,8 @@
             rm.disabled = true;
             try {
                 await api(`/api/favorites/${rm.dataset.id}/`, { method: 'DELETE' });
+                selectedIds.delete(Number(rm.dataset.id));
+                updateExportButton();
                 all = await load();
                 if (activeCategory && !all.some((f) => f.category === activeCategory)) activeCategory = '';
                 renderFavorites();
@@ -336,6 +458,7 @@
     document.addEventListener('favorites:changed', async () => {
         all = await load().catch(() => all);
         renderFavorites();
+        loadSummaries();
         renderRecommendations();
     });
 

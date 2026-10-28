@@ -40,6 +40,14 @@
 <p class="unavailable">Data unavailable for this analysis. The engine returned no usable range.</p>
 {% endif %}
 
+{% if charts.revenue_views %}
+<h3>Projected revenue over time in the area</h3>
+<figure>
+  <img class="chart" src="{{ charts.revenue_views }}" alt="Projected revenue by business category: live, daily, weekly and monthly views">
+  <figcaption>Figure 6.2 – The Business Analytics graph for this location: projected revenue of the {{ s.revenue_timeseries.places_estimated }} businesses the engine estimated within {{ s.location.radius_m|floatformat:0 }} m, by category, today so far, by hour, by weekday and by week of the month (Asia/Kolkata time, generated {{ s.revenue_timeseries.generated_at }}). It spreads the engine's daily estimates with its hourly pattern and fixed weekday/weekend multipliers; confidence: {{ s.revenue_timeseries.confidence.level }}. <span class="tag tag-estimate">Estimate</span> A model projection, not sales data.</figcaption>
+</figure>
+{% endif %}
+
 <h3>How the number is built</h3>
 {% if s.revenue.breakdown %}
 <table>
@@ -71,7 +79,7 @@
   <div><strong>Factors the engine rates negatively</strong><ul>{% for f in s.revenue.negative_factors %}<li>{{ f }}</li>{% empty %}<li>None reported</li>{% endfor %}</ul></div>
 </div>
 {% endif %}
-<p class="small muted">Not used in this report: the revenue API's <code>conversion_rate</code>, <code>customer_quality</code>, <code>dynamic_avg_spend</code> and <code>effective_customers</code> fields, which the code marks as proxies ({% for k, v in s.revenue.excluded_proxy_fields.items %}{{ k }}: {{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}). The map footer's "Est. Monthly Revenue" ({{ s.heatmap.website_legacy_revenue|inr }}) uses a separate legacy formula (₹1,20,000 + ₹7,200 × crowd score) and is not comparable with this forecast.</p>
+<p class="small muted">Not used in this report: the revenue API's <code>conversion_rate</code>, <code>customer_quality</code>, <code>dynamic_avg_spend</code> and <code>effective_customers</code> fields, which the code marks as proxies ({% for k, v in s.revenue.excluded_proxy_fields.items %}{{ k }}: {{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}). The map footer's "Est. Monthly Revenue" is the sum of the same engine's estimates for the popular places listed on the map, not a forecast for this business.</p>
 {% else %}
 <p class="unavailable">Data unavailable for this analysis. {{ s.revenue.reason }}</p>
 {% endif %}

@@ -79,7 +79,7 @@ def sector_chart(heat):
     ax.set_xticks(range(len(sectors)), labels, fontsize=6.5)
     ax.set_ylabel('Mapped features in sector')
     handles = [Rectangle((0, 0), 1, 1, color=INTENSITY_COLORS[k]) for k in ('high', 'medium', 'low', 'empty')]
-    ax.legend(handles, ['High (15+)', 'Medium (5–14)', 'Low (1–4)', 'No features'], fontsize=7,
+    ax.legend(handles, ['High (≥60/km²)', 'Medium (25–59/km²)', 'Low (<25/km²)', 'No features'], fontsize=7,
               frameon=False, ncol=4, loc='upper center', bbox_to_anchor=(0.5, 1.15))
     return _to_data_uri(fig)
 
@@ -95,7 +95,7 @@ def poi_family_chart(pois):
     ax.barh(names, values, color=ACCENT)
     for i, v in enumerate(values):
         ax.text(v, i, f' {v:,}', va='center', fontsize=7.5, color=INK)
-    ax.set_xlabel('Number of mapped OpenStreetMap features within 2 km')
+    ax.set_xlabel('Number of mapped OpenStreetMap features within 5 km')
     ax.margins(x=0.15)
     return _to_data_uri(fig)
 
@@ -155,6 +155,39 @@ def scenario_chart(revenue):
     return _to_data_uri(fig)
 
 
+def synergy_chart(syn):
+    """Factor scores (with weights) and base vs synergy-adjusted monthly scenarios."""
+    if not syn or syn.get('status') != 'ok':
+        return None
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.6, 3.1), gridspec_kw={'width_ratios': [1.15, 1]})
+    factors = list(reversed(syn['factors']))
+    names = [f"{f['label'].split(' (')[0]} ({f['weight'] * 100:g}%)" for f in factors]
+    scores = [f['score'] for f in factors]
+    ax1.barh(names, scores, color=ACCENT, height=0.6)
+    ax1.set_xlim(0, 100)
+    ax1.set_xlabel('Factor score (0–100)')
+    for i, v in enumerate(scores):
+        ax1.text(v, i, f' {v:g}', va='center', fontsize=8, color=INK)
+    plt.setp(ax1.get_yticklabels(), fontsize=7.5)
+    rows = syn['revenue']['rows']
+    labels = [r['label'].split(' (')[0] for r in rows]
+    values = [r['monthly'] for r in rows]
+    colours = [theme.SERIES['slate']] + [theme.SERIES['sky'], ACCENT, theme.SERIES['navy']][:len(rows) - 1]
+    bars = ax2.bar(labels, values, color=colours, width=0.6)
+    bars[0].set_hatch('//')
+    bars[0].set_edgecolor(theme.BG)
+    for i, r in enumerate(rows):
+        extra = f"\n+{r['uplift_pct']:g}%" if r['scenario'] != 'base' else '\nengine'
+        ax2.text(i, r['monthly'], inr(r['monthly']) + extra, ha='center', va='bottom', fontsize=7, color=INK)
+    ax2.set_ylabel('Gross sales per month (₹)')
+    ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: inr(x)))
+    plt.setp(ax2.get_yticklabels(), fontsize=7)
+    plt.setp(ax2.get_xticklabels(), fontsize=7.5, rotation=20, ha='right')
+    ax2.margins(y=0.25)
+    fig.tight_layout()
+    return _to_data_uri(fig)
+
+
 def timeline_chart(phases):
     if not phases:
         return None
@@ -203,7 +236,7 @@ def _projector(lat0):
     k = math.cos(math.radians(lat0))
 
     def project(lat, lon):
-        # Local equirectangular projection in metres; fine at a 2 km scale.
+        # Local equirectangular projection in metres; fine at a 5 km scale.
         return (lon * k * 111320.0, lat * 110540.0)
     return project
 
@@ -220,10 +253,11 @@ def _map_frame(ax, lat, lon, radius_m, project):
         spine.set_visible(True)
         spine.set_color(theme.LINE)
     ax.plot(cx, cy, marker='*', markersize=14, color=theme.ACCENT, markeredgecolor=theme.BG, zorder=5)
-    # 500 m scale bar
+    # Scale bar (1 km for the 5 km analysis circle)
+    bar = 1000 if radius_m >= 3000 else 500
     x0, y0 = cx - radius_m * 1.0, cy - radius_m * 1.0
-    ax.plot([x0, x0 + 500], [y0, y0], color=INK, linewidth=2)
-    ax.text(x0 + 250, y0 + 40, '500 m', ha='center', fontsize=7, color=INK)
+    ax.plot([x0, x0 + bar], [y0, y0], color=INK, linewidth=2)
+    ax.text(x0 + bar / 2, y0 + radius_m * 0.02, f'{bar // 1000} km' if bar >= 1000 else f'{bar} m', ha='center', fontsize=7, color=INK)
     ax.annotate('N', xy=(cx + radius_m * 0.98, cy + radius_m * 0.98), xytext=(cx + radius_m * 0.98, cy + radius_m * 0.78),
                 arrowprops={'arrowstyle': '->', 'color': INK}, ha='center', fontsize=8, color=INK)
     return cx, cy
@@ -257,9 +291,10 @@ def location_map_chart(snapshot, max_points=8000):
 
 def sector_map_chart(snapshot):
     """
-    Fallback heatmap: the platform's sector circles drawn at their real
-    centroids with the website's radii and colours. Used only when the live
-    screenshot is unavailable, and captioned as a reconstruction.
+    Fallback heatmap: every mapped place of the analysis as a dot, with the
+    platform's sector circles at their real centroids in the website's radii
+    and colours. Used when the live screenshot is unavailable; drawn from the
+    same server analysis, so it always shows the report's own location.
     """
     heat = snapshot.get('heatmap') or {}
     if not heat or heat.get('placeholder_used'):
@@ -268,6 +303,10 @@ def sector_map_chart(snapshot):
     project = _projector(loc['latitude'])
     fig, ax = plt.subplots(figsize=(5.6, 5.6))
     cx, cy = project(loc['latitude'], loc['longitude'])
+    points = (snapshot.get('pois') or {}).get('points') or []
+    if points:
+        xs, ys = zip(*(project(la, lo) for la, lo, _fam in points[::max(1, len(points) // 6000)]))
+        ax.scatter(xs, ys, s=1.5, color=theme.POI_OTHER, zorder=1, label='Mapped places')
     # Ring and wedge boundaries of the sector grid.
     for r in (loc['radius_m'] / 3, 2 * loc['radius_m'] / 3):
         ax.add_patch(Circle((cx, cy), r, fill=False, edgecolor=theme.LINE, linewidth=0.8))
@@ -275,7 +314,7 @@ def sector_map_chart(snapshot):
         a = math.radians(angle)
         ax.plot([cx, cx + loc['radius_m'] * math.cos(a)], [cy, cy + loc['radius_m'] * math.sin(a)],
                 color=theme.LINE, linewidth=0.8)
-    radii = {'high': 800, 'medium': 600, 'low': 400}  # same as static/js/main.js
+    radii = {'high': 750, 'medium': 600, 'low': 450}  # same as CROWD_LEVEL_STYLE in static/js/main.js
     for level in ('low', 'medium', 'high'):
         for area in (heat.get('areas') or {}).get(level, []):
             x, y = project(area['latitude'], area['longitude'])
@@ -288,6 +327,61 @@ def sector_map_chart(snapshot):
     return _to_data_uri(fig)
 
 
+def _compact_inr(value, _pos=None):
+    v = abs(value)
+    if v >= 1e7:
+        return f'₹{value / 1e7:.1f} Cr'
+    if v >= 1e5:
+        return f'₹{value / 1e5:.1f} L'
+    if v >= 1e3:
+        return f'₹{value / 1e3:.0f} K'
+    return f'₹{value:.0f}'
+
+
+def revenue_views_chart(timeseries):
+    """
+    The Business Analytics graph as a static image: the four views (live, daily,
+    weekly, monthly) as stacked bars by business category. Same data as the website
+    (business_intelligence.revenue_timeseries); a projection, not sales data.
+    """
+    if not timeseries or timeseries.get('status') != 'ok':
+        return None
+    views = timeseries['views']
+    cats = timeseries['categories']
+    if not cats:
+        return None
+    stops = [(34, 211, 238), (139, 92, 246), (236, 72, 153)]   # same neon gradient as the website
+
+    def colour(i):
+        t = (i / (len(cats) - 1) if len(cats) > 1 else 0) * 2
+        k = min(1, int(t))
+        f = t - k
+        return tuple((stops[k][j] + (stops[k + 1][j] - stops[k][j]) * f) / 255 for j in range(3))
+
+    fig, axes = plt.subplots(2, 2, figsize=(7.4, 5.6))
+    titles = {'live': 'Live – today so far', 'daily': 'Daily – today by hour',
+              'weekly': 'Weekly – this week', 'monthly': 'Monthly – weeks of this month'}
+    for ax, key in zip(axes.flat, ('live', 'daily', 'weekly', 'monthly')):
+        v = views[key]
+        x = list(range(len(v['buckets'])))
+        bottom = [0.0] * len(x)
+        for i, c in enumerate(cats):
+            vals = v['series'][c['key']]
+            ax.bar(x, vals, bottom=bottom, color=colour(i), width=0.78, label=c['label'] if key == 'daily' else None)
+            bottom = [b + val for b, val in zip(bottom, vals)]
+        step = 3 if len(x) > 12 else 1
+        ax.set_xticks(x[::step])
+        ax.set_xticklabels(v['buckets'][::step], rotation=0 if len(x) <= 7 else 45, fontsize=6.5)
+        ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(_compact_inr))
+        ax.tick_params(axis='y', labelsize=7)
+        total = v.get('today_so_far', v['total'])
+        ax.set_title(f"{titles[key]}: {inr(total)}", fontsize=8.5, loc='left')
+    handles, labels = axes.flat[1].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='lower center', ncol=min(5, len(labels)), fontsize=7, frameon=False)
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
+    return _to_data_uri(fig)
+
+
 def build_all(snapshot, risks, phases):
     return {
         'location_map': location_map_chart(snapshot),
@@ -297,6 +391,8 @@ def build_all(snapshot, risks, phases):
         'competitor_distance': competitor_distance_chart(snapshot.get('competition')),
         'candidates': candidate_chart(snapshot.get('candidates')),
         'scenarios': scenario_chart(snapshot.get('revenue')),
+        'revenue_views': revenue_views_chart(snapshot.get('revenue_timeseries')),
+        'synergy': synergy_chart(snapshot.get('synergy')),
         'timeline': timeline_chart(phases),
         'risk_matrix': risk_matrix_chart(risks),
     }

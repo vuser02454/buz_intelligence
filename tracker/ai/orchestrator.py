@@ -92,43 +92,21 @@ def _build_trusted_location_context(
     Construct a complete, factual location context dictionary by executing
     the platform's spatial queries, ML predictions, and revenue models.
     """
-    from tracker.views import (
-        _build_overpass_query,
-        _run_overpass_query,
-        _infer_area_from_pois,
-        predict_business,
-        get_business_choices_for_intensity,
-    )
-    from tracker import utils
+    # Same cached 5 km area data the map uses (one Overpass fetch per place),
+    # cut to the 2 km the assistant reports on.
+    from business_intelligence import analysis as area_analysis
+    from business_intelligence import utils
+    from business_intelligence.analysis import _infer_area_from_pois, predict_business
 
-    # 1. Fetch live POIs from Overpass
-    query = _build_overpass_query(lat, lon, 2000)
-    results, _ = _run_overpass_query(query, timeout=15)
-    elements = (results.get('elements', [])) if results else []
+    fetched = area_analysis.fetch_area_pois(lat, lon, area_analysis.HEATMAP_RADIUS_M)
+    elements = (area_analysis.elements_within(fetched['elements'], lat, lon, 2000)
+                if fetched['status'] == 'ok' else [])
 
-    # 2. Evaluate sector grid density
-    high_count = 0
-    med_count = 0
-    low_count = 0
-    sector_counts = {}
-    
-    for el in elements:
-        e_lat = el.get('lat') or (el.get('center', {}).get('lat'))
-        e_lon = el.get('lon') or (el.get('center', {}).get('lon'))
-        if e_lat and e_lon:
-            s_key = f"{int(e_lat*100)}_{int(e_lon*100)}"
-            sector_counts[s_key] = sector_counts.get(s_key, 0) + 1
-            
-    for count in sector_counts.values():
-        if count >= 15:
-            high_count += 1
-        elif count >= 5:
-            med_count += 1
-        else:
-            low_count += 1
-            
-    dominant_intensity = "high" if high_count > 0 else ("medium" if med_count > 0 else "low")
-    
+    # 2. Sector crowd levels (same density rules as the website heatmap)
+    grid = area_analysis.classify_sectors(elements, lat, lon, 2000)
+    high_count, med_count, low_count = len(grid['high']), len(grid['medium']), len(grid['low'])
+    dominant_intensity = grid['dominant']
+
     # 3. Machine Learning Business Prediction
     area_hint = _infer_area_from_pois(elements)
     predicted_business = predict_business(dominant_intensity, area_hint=area_hint)
@@ -146,13 +124,16 @@ def _build_trusted_location_context(
             competitor_count += 1
 
     # 5. Spatial Revenue Engine & POI Enrichment
-    enriched_places, total_area_rev = utils.enrich_places_with_revenue(elements)
+    targets = area_analysis.sample_places_across_sectors(elements, lat, lon, 2000, limit=12)
+    enriched_places, total_area_rev = utils.enrich_places_with_revenue(elements, targets=targets)
     crowd_score = utils.calculate_crowd_score(elements)
-    
-    # Top location smart revenue
-    from tracker.prediction_engine import predict_site_revenue
-    pred_res = predict_site_revenue(lat, lon, elements, target_business.lower().replace(' ', '_'))
-    res_dict = pred_res.to_dict()
+
+    # Revenue for the target business (engine catchment applied, as on the website)
+    rev = utils.calculate_smart_revenue(elements, business_type=target_business.lower().replace(' ', '_'), lat=lat, lon=lon)
+    res_dict = {'potential_score': rev['potential_score'], 'daily_revenue': rev['daily_revenue'],
+                'monthly_revenue': rev['monthly_revenue'], 'annual_revenue': rev['annual_revenue'],
+                'confidence_score': rev['confidence_score'], 'revenue_range': rev['revenue_range'],
+                'risk_level': rev['risk_level']}
 
     return {
         "location": {

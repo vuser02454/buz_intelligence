@@ -111,6 +111,13 @@ TEMPLATES = [
 SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://ijsfmdgysmwovaighumv.supabase.co')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', 'sb_publishable_EdW1JxXZSkEA1uV4Yl4eIg_F9dvq-2h')
 
+# Public base URL of this site, used to build the links in Supabase e-mails
+# (<SITE_URL>/auth/callback/). Empty = use the origin the page was opened on.
+# Every value used must be listed under Supabase > Authentication > URL
+# Configuration > Redirect URLs, otherwise Supabase falls back to its Site URL
+# (http://localhost:3000 by default). See MANUAL_STEPS.md.
+SITE_URL = os.environ.get('SITE_URL', '').strip().rstrip('/')
+
 WSGI_APPLICATION = 'crowd_heatmap_project.wsgi.application'
 
 
@@ -176,6 +183,32 @@ CHANNEL_LAYERS = {
         'BACKEND': 'channels.layers.InMemoryChannelLayer',
     },
 }
+
+# 'overpass' keeps OpenStreetMap area data across restarts (fresh 6 h, served
+# as a labelled cached copy for up to 7 days when Overpass is down). Tests use
+# memory caches so they never read data cached by the dev server.
+import sys  # noqa: E402
+_TESTING = len(sys.argv) > 1 and sys.argv[1] == 'test'
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'default'},
+    'overpass': ({'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'overpass-tests'}
+                 if _TESTING else
+                 {'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+                  'LOCATION': os.environ.get('OVERPASS_CACHE_DIR', str(BASE_DIR / '.cache' / 'overpass')),
+                  'TIMEOUT': 7 * 24 * 3600, 'OPTIONS': {'MAX_ENTRIES': 5000}}),
+}
+
+# Overpass mirrors, tried in order with hedging (comma-separated). Point this at
+# a private/paid Overpass instance for predictable latency.
+OVERPASS_URLS = [u.strip() for u in os.environ.get('OVERPASS_URLS', '').split(',') if u.strip()]
+# How long one web request waits for OpenStreetMap before answering "pending".
+OVERPASS_WAIT_SECONDS = float(os.environ.get('OVERPASS_WAIT_SECONDS', '18'))
+# Cached area data counts as fresh this long; older copies are still served
+# instantly while a background refresh runs (stale-while-revalidate).
+OVERPASS_FRESH_SECONDS = int(os.environ.get('OVERPASS_FRESH_SECONDS', '600'))
+
+# Seconds between live revenue pushes on ws/analytics/ (the page polls at 8 s without WebSockets).
+ANALYTICS_LIVE_INTERVAL = float(os.environ.get('ANALYTICS_LIVE_INTERVAL', '5'))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

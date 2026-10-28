@@ -17,7 +17,7 @@ import logging
 from collections import Counter
 from datetime import datetime, timezone
 
-from business_intelligence import analysis, utils
+from business_intelligence import analysis, synergy, utils
 from business_intelligence.prediction_engine import (
     ExtendedHuffModel,
     FeatureExtractor,
@@ -31,7 +31,11 @@ logger = logging.getLogger(__name__)
 
 UNAVAILABLE = 'Data unavailable for this analysis.'
 
-RING_LABELS = ['0 – 667 m', '667 – 1,333 m', '1,333 – 2,000 m']
+
+def ring_labels(radius_m):
+    step = radius_m / 3.0
+    fmt = lambda m: f'{m / 1000:.2f} km'.replace('.00 km', ' km')
+    return [f'{fmt(i * step) if i else "0"} – {fmt((i + 1) * step)}' for i in range(3)]
 # Wedges are cut by math angle atan2(dlat, dlon) + 180°, i.e. compass bearings:
 WEDGE_LABELS = ['South-west (bearing 150°–270°)', 'East (bearing 30°–150°)', 'North-west (bearing 270°–30°)']
 
@@ -124,7 +128,7 @@ def _summarise_pois(elements, lat, lon, radius_m):
         points.append((round(c[0], 6), round(c[1], 6), fam))
     return {
         'status': 'ok' if in_radius else 'unavailable',
-        'reason': '' if in_radius else 'OpenStreetMap returned no mapped features with coordinates within 2 km.',
+        'reason': '' if in_radius else f'OpenStreetMap returned no mapped features with coordinates within {radius_m / 1000:g} km.',
         'total_returned': len(elements),
         'in_radius': in_radius,
         'named': named,
@@ -142,20 +146,22 @@ def _heatmap(elements, lat, lon, radius_m):
             by_key[area['sector']] = (level, area)
 
     sectors = []
+    labels = ring_labels(radius_m)
     for ring in range(3):
         for wedge in range(3):
             key = f'{ring}_{wedge}'
             level, area = by_key.pop(key, (None, None))
             sectors.append({
                 'key': key,
-                'ring': RING_LABELS[ring],
+                'ring': labels[ring],
                 'wedge': WEDGE_LABELS[wedge],
                 'count': area['count'] if area else 0,
+                'density_per_km2': area.get('density_per_km2') if area else 0,
                 'intensity': level or 'empty',
                 'latitude': area['latitude'] if area else None,
                 'longitude': area['longitude'] if area else None,
             })
-    # Boundary keys (a feature exactly on the 2 km edge or due west) and the
+    # Boundary keys (a feature exactly on the edge or due west) and the
     # no-data placeholder are kept but listed separately.
     extra = [{'key': k, 'intensity': lvl, 'count': a['count'],
               'latitude': a['latitude'], 'longitude': a['longitude']} for k, (lvl, a) in by_key.items()]
@@ -171,13 +177,12 @@ def _heatmap(elements, lat, lon, radius_m):
         'counts': counts,
         'areas': {lvl: grid[lvl] for lvl in ('high', 'medium', 'low')},
         'thresholds': {
-            'high': f'{analysis.HIGH_SECTOR_MIN_POIS} or more mapped features',
-            'medium': f'{analysis.MEDIUM_SECTOR_MIN_POIS}–{analysis.HIGH_SECTOR_MIN_POIS - 1} mapped features',
-            'low': f'1–{analysis.MEDIUM_SECTOR_MIN_POIS - 1} mapped features',
+            'high': f'{analysis.HIGH_DENSITY_PER_KM2} or more mapped places per km²',
+            'medium': f'{analysis.MEDIUM_DENSITY_PER_KM2}–{analysis.HIGH_DENSITY_PER_KM2 - 1} mapped places per km²',
+            'low': f'below {analysis.MEDIUM_DENSITY_PER_KM2} mapped places per km²',
         },
-        # What the website's footer shows, with its real meaning.
+        'density_per_km2': grid['density_per_km2'],
         'website_crowd_score': utils.calculate_crowd_score(elements),
-        'website_legacy_revenue': utils.predict_revenue(utils.calculate_crowd_score(elements)),
     }
 
 
@@ -204,7 +209,7 @@ def _competitors(elements, lat, lon, business_type):
     found.sort(key=lambda r: r['distance_m'])
     distances = [r['distance_m'] for r in found]
     bins = [('0–250 m', 0, 250), ('250–500 m', 250, 500), ('500 m–1 km', 500, 1000),
-            ('1–1.5 km', 1000, 1500), ('1.5–2 km', 1500, 2000), ('> 2 km', 2000, float('inf'))]
+            ('1–2 km', 1000, 2000), ('2–3.5 km', 2000, 3500), ('3.5–5 km', 3500, 5000), ('> 5 km', 5000, float('inf'))]
     return {
         'status': 'ok',
         'business_type': business_type,
@@ -280,6 +285,7 @@ def _revenue_breakdown(elements, lat, lon, business_type, b_key, metrics, engine
     to expose the values it does not return. If the layers do not reproduce
     the engine's daily revenue exactly, the breakdown is discarded.
     """
+    elements = utils.engine_catchment(elements, lat, lon)  # same input calculate_smart_revenue gives the engine
     features = FeatureExtractor(lat, lon, business_type).extract_features(elements)
     huff = HuffModel(lat, lon, b_key).compute_huff_metrics(
         elements=elements,
@@ -319,9 +325,7 @@ def _revenue_breakdown(elements, lat, lon, business_type, b_key, metrics, engine
     }
 
 
-def feasibility_elements(elements):
-    """Features the feasibility query would return: those with amenity, shop or tourism keys."""
-    return [el for el in elements if any(k in (el.get('tags') or {}) for k in ('amenity', 'shop', 'tourism'))]
+feasibility_elements = analysis.feasibility_elements
 
 
 def _candidate_list(prediction, requested):
@@ -355,16 +359,19 @@ def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None):
     sources = []
     collected_at = _now_iso()
 
-    results, error = analysis._run_overpass_query(analysis._build_overpass_query(lat, lon, radius_m), timeout=30)
-    if error or results is None:
+    # The same cached 5 km area fetch the website map uses, so the report shows
+    # exactly the analysis that was on screen.
+    fetched = analysis.fetch_area_pois(lat, lon, analysis.HEATMAP_RADIUS_M, wait_s=90)
+    if fetched['status'] != 'ok':
         raise CollectionError('OpenStreetMap data could not be retrieved (Overpass API). Please try again shortly.')
-    elements = results.get('elements', [])
+    elements = analysis.elements_within(fetched['elements'], lat, lon, radius_m)
     sources.append({
         'name': 'OpenStreetMap features via the Overpass API',
-        'detail': f'amenity, shop, tourism, building, office, highway, railway and public_transport features '
-                  f'within {radius_m} m; {len(elements)} features returned',
-        'retrieved_at': collected_at,
-        'note': 'Responses are cached by the platform for up to 15 minutes.',
+        'detail': f'amenity, shop, tourism, office, leisure and transit features within {radius_m / 1000:g} km; '
+                  f'{len(elements)} features inside the analysis circle',
+        'retrieved_at': fetched['fetched_at'],
+        'note': ('Live refresh failed; a cached copy retrieved at the time above was used.' if fetched['stale']
+                 else 'Area data is cached by the platform for up to 6 hours.'),
     })
     progress('collect')
 
@@ -404,7 +411,7 @@ def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None):
     # within 2000 m (build_feasibility_query). Those are exactly the features
     # of the main query that carry one of these keys, so filtering locally
     # gives the rules identical input without a second Overpass request.
-    feas_elements = feasibility_elements(elements)
+    feas_elements = feasibility_elements(analysis.elements_within(elements, lat, lon, 2000))
     if not target:
         snapshot['feasibility'] = {'status': 'unavailable', 'reason': 'No business type was available to test.'}
         missing.append({'item': 'Feasibility check', 'reason': snapshot['feasibility']['reason']})
@@ -434,6 +441,11 @@ def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None):
         snapshot['competition'] = {'status': 'unavailable', 'reason': reason}
         missing.append({'item': 'Revenue forecast and competitor list', 'reason': reason})
 
+    # --- Business Synergy Intelligence ---
+    # Same function, inputs and base revenue as /api/synergy/ (the revenue engine's
+    # monthly figure from above), so the report and the website show the same numbers.
+    snapshot['synergy'] = _synergy(elements, lat, lon, name, target, snapshot['revenue'], radius_m, missing)
+
     # --- Candidate comparison (same engines, one run per candidate) ---
     candidates = []
     for cand in _candidate_list(prediction, business_type):
@@ -456,5 +468,41 @@ def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None):
         row['feasible'] = analysis.evaluate_feasibility(feas_elements, lat, lon, cand['business'])['feasible']
         candidates.append(row)
     snapshot['candidates'] = candidates
+    snapshot['revenue_timeseries'] = _revenue_timeseries(elements, lat, lon, radius_m, collected_at)
     progress('revenue')
     return snapshot
+
+
+def _synergy(elements, lat, lon, name, target, revenue, radius_m, missing):
+    if not target or revenue.get('status') != 'ok':
+        reason = 'Synergy needs a business type and the revenue forecast, which were not available.'
+        missing.append({'item': 'Business synergy analysis', 'reason': reason})
+        return {'status': 'unavailable', 'reason': reason}
+    try:
+        result = synergy.for_location(elements, lat, lon, target, base_monthly=revenue['monthly'], location_name=name)
+        top = analysis.recommend_businesses(lat, lon, radius_m=radius_m, location_name=name, elements=elements, limit=5)
+    except Exception as exc:
+        logger.exception('Synergy analysis failed')
+        reason = f'The synergy analysis could not run ({type(exc).__name__}).'
+        missing.append({'item': 'Business synergy analysis', 'reason': reason})
+        return {'status': 'unavailable', 'reason': reason}
+    return {'status': 'ok', **result, 'top5': top['recommendations'], 'comparison': top['comparison']}
+
+
+def _revenue_timeseries(elements, lat, lon, radius_m, collected_at):
+    """The Business Analytics projection (live/daily/weekly/monthly) for the same places as the map."""
+    from business_intelligence import revenue_timeseries as ts
+    try:
+        targets = analysis.sample_places_across_sectors(elements, lat, lon, radius_m, limit=30)
+        places, _total = utils.enrich_places_with_revenue(elements, targets=targets)
+        grid = analysis.classify_sectors(elements, lat, lon, radius_m)
+        base = ts.base_from_places(places, len(elements), grid['dominant'], grid['density_per_km2'], collected_at)
+        if not base['categories']:
+            return {'status': 'unavailable', 'reason': 'No mapped business could be estimated.'}
+        built = ts.build_views(base)
+        return {'status': 'ok', 'views': built['views'], 'generated_at': built['generated_at'],
+                'categories': [{'key': c['key'], 'label': c['label'], 'places': c['places']} for c in base['categories']],
+                'confidence': base['confidence'], 'places_estimated': base['places_estimated']}
+    except Exception as exc:  # explanatory only; the report stands without it
+        logger.exception('Revenue time series failed')
+        return {'status': 'unavailable', 'reason': f'The projection could not be computed ({type(exc).__name__}).'}

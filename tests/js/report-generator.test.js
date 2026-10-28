@@ -31,6 +31,9 @@ function setup({ location = LOC, session = { access_token: 'tok' }, heatmapAt = 
     const calls = [];
     const queue = responses.slice();
     w.fetch = async (url, opts = {}) => {
+        if (String(url).startsWith('/api/business-types/')) {
+            return json(200, { business_types: [{ value: 'Cafe' }, { value: 'Pharmacy' }, { value: 'Auto Repair Shop' }] });
+        }
         calls.push({ url, opts });
         const next = queue.shift();
         if (!next) throw new Error('unexpected fetch ' + url);
@@ -48,7 +51,8 @@ function setup({ location = LOC, session = { access_token: 'tok' }, heatmapAt = 
     w.URL.revokeObjectURL = () => {};
     w.L = { TileLayer: function () {} };
     Object.assign(w, {
-        getSelectedLocation: () => location,
+        getCurrentAnalysisLocation: () => location,
+        drawAnalysisRadius: () => {},
         getCookie: () => 'csrf123',
         isDashboardPage: () => true,
         addChatMessage: (msg, sender, actions) => chat.push({ msg, actions }),
@@ -91,7 +95,7 @@ test('recognises the same report requests as the server', () => {
 });
 
 test('no location selected: asks for one and sends nothing', async () => {
-    const { w, calls } = setup({ location: null });
+    const { w, calls } = setup({ location: null, heatmapAt: null });
     w.ReportGenerator.start({ source: 'dashboard' });
     await until(() => panelText(w).includes('Select a location first'));
     assert.equal(calls.length, 0);
@@ -121,8 +125,9 @@ test('successful generation: loading state, capture payload, polling and downloa
     assert.equal(post.opts.headers.Authorization, 'Bearer tok');
     assert.equal(post.opts.headers['X-CSRFToken'], 'csrf123');
     const body = JSON.parse(post.opts.body);
-    assert.deepEqual(body.location, { name: LOC.name, latitude: LOC.lat, longitude: LOC.lng });
-    assert.equal(body.radius_m, 2000);
+    assert.deepEqual(body.location, { name: LOC.name, address: LOC.name, latitude: LOC.lat, longitude: LOC.lng });
+    assert.equal(body.radius_m, 5000);
+    assert.equal(body.business_type, '');
     assert.match(body.heatmap.image, /^data:image\/jpeg;base64,/);
     assert.equal(body.heatmap.analysed_lat, LOC.lat);
     assert.equal(calls[1].url, '/api/reports/abc/status/');
@@ -201,4 +206,42 @@ test('server says a job is already running: follows that job', async () => {
     w.ReportGenerator.start({ source: 'dashboard' });
     await until(() => calls.length === 2);
     assert.equal(calls[1].url, '/api/reports/existing/status/');
+});
+
+test('business_type is a category from the allowed list; an address never becomes the category', async () => {
+    const addressAsType = { ...LOC, name: 'auto repair shop, MDR, Mulamoottil Colony, Kayamkulam', type: 'auto repair shop, MDR, Mulamoottil Colony' };
+    const { w, calls } = setup({ location: addressAsType, responses: [
+        json(202, { report_id: 'c1', stages: STAGES }),
+        json(200, { status: 'succeeded', stages: [], page_count: 20, location: 'x' }),
+    ] });
+    w.ReportGenerator.start({ source: 'dashboard' });
+    await until(() => calls.length === 2);
+    const body = JSON.parse(calls[0].opts.body);
+    assert.equal(body.business_type, '');
+    assert.equal(body.location.address, 'auto repair shop, MDR, Mulamoottil Colony, Kayamkulam');
+    assert.equal(body.location.name, 'auto repair shop, MDR');
+});
+
+test('a category passed by the caller (e.g. the startup form) is normalised and sent', async () => {
+    const { w, calls } = setup({ responses: [
+        json(202, { report_id: 'c2', stages: STAGES }),
+        json(200, { status: 'succeeded', stages: [], page_count: 20, location: 'x' }),
+    ] });
+    w.ReportGenerator.start({ source: 'dashboard', businessType: 'cafe' });
+    await until(() => calls.length === 2);
+    assert.equal(JSON.parse(calls[0].opts.body).business_type, 'Cafe');
+});
+
+test('analysis that never finishes: no screenshot of the wrong place, the server draws the map', async () => {
+    const { w, calls } = setup({ heatmapAt: { lat: 9.17, lng: 76.5 }, responses: [
+        json(202, { report_id: 'c3', stages: STAGES }),
+        json(200, { status: 'succeeded', stages: [], page_count: 20, location: 'x' }),
+    ] });
+    w.updateCrowdIntensityDropdown = async () => ({ success: false, error: 'OpenStreetMap busy' });
+    w.ReportGenerator.start({ source: 'dashboard' });
+    await until(() => calls.length === 2);
+    const body = JSON.parse(calls[0].opts.body);
+    assert.equal(body.heatmap.image, undefined);
+    assert.match(body.heatmap.capture_error, /did not finish \(OpenStreetMap busy\)/);
+    assert.equal(body.location.latitude, LOC.lat);
 });

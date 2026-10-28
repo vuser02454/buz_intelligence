@@ -1,0 +1,98 @@
+{% load report_tags %}
+<h2 class="section" id="sec-synergy"><span class="num">7</span>&nbsp;Business Synergy Opportunity Analysis</h2>
+
+{% with y=s.synergy %}
+{% if y.status == 'ok' %}
+<div class="warning"><strong>Synergy figures are model projections, not measured results.</strong> The score is calculated by fixed rules from OpenStreetMap places within {{ y.data.search_radius_m|floatformat:0 }} m; the revenue scenarios apply illustrative uplift assumptions to the revenue engine's base estimate in Section 6. Customer links between places are inferred, not observed.</div>
+
+<h3>7.1 Synergy overview <span class="tag tag-estimate">Estimate</span></h3>
+<div class="kpis">
+  <div class="kpi"><div class="label">Synergy Potential Score</div><div class="value">{{ y.score|floatformat:1 }}/100</div><div class="note">{{ y.level }} synergy for {{ y.business }}</div></div>
+  <div class="kpi"><div class="label">Data confidence</div><div class="value">{{ y.data.confidence|capfirst }}</div><div class="note"><span class="tag tag-observed">Observed</span> {{ y.data.mapped_places_1500m }} mapped places within 1.5 km</div></div>
+  <div class="kpi"><div class="label">Similar places within 1 km</div><div class="value">{{ y.competition.competitors_1km }}</div><div class="note"><span class="tag tag-observed">Observed</span> {{ y.competition.competitors_400m }} within 400 m</div></div>
+</div>
+<p>{{ y.explanation.why }}</p>
+
+<h3>7.2 Existing businesses that could help <span class="tag tag-template">Template text</span></h3>
+{% if y.explanation.supports %}
+<table>
+  <thead><tr><th>Nearby</th><th class="num">Count</th><th class="num">Nearest</th><th>Examples (OpenStreetMap names)</th><th class="num">Points</th></tr></thead>
+  <tbody>
+  {% for sp in y.explanation.supports %}{% if sp.kind == 'Nearby business' %}
+    <tr><td><strong>{{ sp.title }}</strong><div class="small muted">{{ sp.relationship }}</div></td>
+      <td class="num">{{ sp.count }}</td><td class="num">{{ sp.nearest_m }} m</td>
+      <td class="small">{% for e in sp.examples %}{{ e.name }} ({{ e.distance_m }} m){% if not forloop.last %}; {% endif %}{% endfor %}</td>
+      <td class="num">{{ sp.points|floatformat:1 }}</td></tr>
+  {% endif %}{% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="unavailable">No complementary businesses were found in the map data near this site.</p>
+{% endif %}
+
+<h3>7.3 Environmental opportunities <span class="tag tag-template">Template text</span></h3>
+<table>
+  <thead><tr><th>Demand generator</th><th class="num">Count</th><th class="num">Nearest</th><th>Examples</th><th class="num">Points</th></tr></thead>
+  <tbody>
+  {% for sp in y.explanation.supports %}{% if sp.kind == 'Surrounding demand' %}
+    <tr><td><strong>{{ sp.title }}</strong><div class="small muted">{{ sp.relationship }}{% if sp.note %} {{ sp.note }}{% endif %}</div></td>
+      <td class="num">{{ sp.count }}</td><td class="num">{{ sp.nearest_m }} m</td>
+      <td class="small">{% for e in sp.examples %}{{ e.name }} ({{ e.distance_m }} m){% if not forloop.last %}; {% endif %}{% endfor %}</td>
+      <td class="num">{{ sp.points|floatformat:1 }}</td></tr>
+  {% endif %}{% endfor %}
+  </tbody>
+</table>
+<p class="small">Transit near the site: {{ y.accessibility.bus_stops_500m }} bus stop{{ y.accessibility.bus_stops_500m|pluralize }} within 500 m, {{ y.accessibility.stations_1km }} station{{ y.accessibility.stations_1km|pluralize }} within 1 km, {{ y.accessibility.parking_500m }} parking/fuel place{{ y.accessibility.parking_500m|pluralize }} within 500 m.
+{% if y.customer_groups_present %} Possible customer groups present: {{ y.customer_groups_present|join:", " }}.{% endif %}</p>
+
+<h3>7.4 Synergy calculations</h3>
+<table>
+  <thead><tr><th>Factor</th><th class="num">Score (0–100)</th><th class="num">Weight</th><th class="num">Points</th></tr></thead>
+  <tbody>
+  {% for f in y.factors %}<tr><td>{{ f.label }}</td><td class="num">{{ f.score|floatformat:1 }}</td><td class="num">{{ f.weight|pct }}</td><td class="num">{{ f.points|floatformat:1 }}</td></tr>{% endfor %}
+    <tr><td><strong>Synergy Potential Score</strong></td><td></td><td class="num">100%</td><td class="num"><strong>{{ y.score|floatformat:1 }}</strong></td></tr>
+  </tbody>
+</table>
+{% if charts.synergy %}
+<figure>
+  <img class="chart" src="{{ charts.synergy }}" alt="Synergy factor scores and synergy-adjusted revenue scenarios">
+  <figcaption>Figure 7.1 – Left: the five synergy factors (weight in brackets). Right: the revenue engine's base monthly estimate (hatched) and the synergy-adjusted scenarios. <span class="tag tag-estimate">Estimate</span></figcaption>
+</figure>
+{% endif %}
+<p class="small"><strong>Method.</strong> Each nearby place counts fully within 300 m and linearly less up to 1.5 km (weight 0.2 at the edge). Complementary businesses and demand generators each have a relevance to {{ y.business }}; a relationship's strength is its distance-weighted count divided by a saturation level, capped at 1. The competition factor falls as distance-weighted similar places within 1 km ({{ y.competition.pressure }}) approach the capacity the local demand supports ({{ y.competition.capacity }}), with a bonus for destination clusters and a penalty for saturation within 400 m. Accessibility is the revenue engine's own accessibility score. Score = Σ weight × factor.</p>
+
+<h3>7.5 Revenue impact scenarios <span class="tag tag-estimate">Estimate</span></h3>
+<table>
+  <thead><tr><th>Scenario</th><th class="num">Uplift applied</th><th class="num">Gross sales / month</th><th class="num">Additional / month</th></tr></thead>
+  <tbody>
+  {% for r in y.revenue.rows %}
+    <tr><td>{% if r.scenario == 'base' %}<strong>{{ r.label }}</strong>{% else %}{{ r.label }}{% endif %}</td>
+      <td class="num">{% if r.scenario == 'base' %}—{% else %}+{{ r.uplift_pct }}% <span class="small muted">(cap {{ r.cap_pct }}%)</span>{% endif %}</td>
+      <td class="num">{{ r.monthly|inr }}</td><td class="num">{% if r.scenario == 'base' %}—{% else %}{{ r.additional|inr }}{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="small">{{ y.revenue.method }} Base = Section 6 monthly estimate ({{ s.revenue.monthly|inr }}).</p>
+<p>{{ y.explanation.opportunity }}</p>
+
+{% if y.comparison %}
+<h4>Top 5 recommendations: model vs synergy</h4>
+<table>
+  <thead><tr><th>#</th><th>Business</th><th class="num">Model score</th><th class="num">Synergy</th><th class="num">Overall</th><th class="num">Base / month</th><th class="num">Moderate / month</th></tr></thead>
+  <tbody>
+  {% for r in y.top5 %}<tr><td>{{ forloop.counter }}</td><td>{{ r.name }}</td><td class="num">{{ r.model_score|floatformat:1 }}</td><td class="num">{{ r.synergy.score|floatformat:1 }} <span class="small muted">{{ r.synergy.level }}</span></td><td class="num">{{ r.overall_score|floatformat:1 }}</td><td class="num">{{ r.synergy.scenarios.base.monthly|inr }}</td><td class="num">{{ r.synergy.scenarios.moderate.monthly|inr }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+<p class="small">Best by the existing model: <strong>{{ y.comparison.model.name }}</strong>. Best synergy potential: <strong>{{ y.comparison.synergy.name }}</strong> ({{ y.comparison.synergy.synergy_score|floatformat:1 }}). Best overall: <strong>{{ y.comparison.overall.name }}</strong> ({{ y.comparison.overall.overall_score|floatformat:1 }}). {{ y.comparison.method }} For these five, the base is the recommendation engine's starting revenue at the spot it suggests for each business (the same figure as on the website's recommendation cards), so it differs from the Section 6 figure for {{ y.business }}.</p>
+{% endif %}
+
+<h3>7.6 Risks and limitations</h3>
+<ul>{% for r in y.explanation.risks %}<li>{{ r }}</li>{% endfor %}</ul>
+
+<h3>7.7 Practical advice</h3>
+<ol>{% for a in y.explanation.actions %}<li>{{ a }}</li>{% endfor %}</ol>
+<p class="small muted">{{ y.explanation.disclaimer }}</p>
+{% else %}
+<p class="unavailable">Data unavailable for this analysis. {{ y.reason }}</p>
+{% endif %}
+{% endwith %}

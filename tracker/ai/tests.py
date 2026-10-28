@@ -128,11 +128,16 @@ class DualAITestCase(TestCase):
 
     @patch('tracker.ai.orchestrator.gemini_analyze')
     @patch('tracker.ai.orchestrator.grok_review')
-    def test_orchestrator_end_to_end(self, mock_grok, mock_gemini):
+    @patch('tracker.ai.orchestrator._geocode_place',
+           return_value={'name': 'Indiranagar, Bengaluru', 'lat': 12.9784, 'lon': 77.6408})
+    def test_orchestrator_end_to_end(self, _geocode, mock_grok, mock_gemini):
+        # No network: geocoding and OpenStreetMap are faked.
+        from report_generator.tests.fixtures import fake_overpass
         mock_gemini.return_value = {"success": True, "analysis": "Primary analysis."}
         mock_grok.return_value = {"success": True, "review": "Secondary review."}
 
-        output = process_user_query("What business should I open in Indiranagar?")
+        with fake_overpass():
+            output = process_user_query("What business should I open in Indiranagar?")
         self.assertTrue(output["success"])
         self.assertIn("Indiranagar", output["message"])
         self.assertTrue(len(output["structured_actions"]) > 0)

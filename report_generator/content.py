@@ -144,7 +144,7 @@ _GROUP_DETAILS = {
         'premises': ['Confirm truck access, road width, load-bearing floors and power'],
     },
     'general': {
-        'validate_demand': ['Describe your target customer and estimate how many live or work within 2 km',
+        'validate_demand': ['Describe your target customer and estimate how many live or work within 2–5 km',
                             'Test interest with a small survey or pre-orders'],
         'competitors': ['Visit similar businesses nearby and note prices and quality'],
         'capital': ['List all one-time costs with written quotes'],
@@ -263,9 +263,9 @@ def heatmap_text(s):
             'spatial_pattern': 'The spatial pattern cannot be described for this location.',
         }
     explanation = (
-        f"The 2 km circle is divided into 9 sectors: 3 distance rings × 3 compass wedges. Each sector is coloured by "
+        f"The 5 km circle is divided into 9 sectors: 3 distance rings × 3 compass wedges. Each sector is coloured by "
         f"how many mapped features it contains. {c['high']} sector(s) are High (15 or more features), "
-        f"{c['medium']} Medium (5–14) and {c['low']} Low (1–4); {c['empty']} contain none. "
+        f"{c['medium']} Medium (25–59/km²) and {c['low']} Low (below 25/km²); {c['empty']} contain none. "
         f"Because at least one sector is {_dominant_phrase(heat)}, the platform treats the area as "
         f"{_dominant_phrase(heat)} intensity when recommending businesses."
     )
@@ -305,9 +305,9 @@ def candidate_text(s, cand):
             weaknesses.append('No same-category competitors were matched in the map data; this can mean an '
                               'unserved niche or simply that similar places are tagged differently.')
         elif comps >= 10:
-            weaknesses.append(f'{comps} similar places are mapped within 2 km (strong competition).')
+            weaknesses.append(f'{comps} similar places are mapped within 5 km (strong competition).')
         else:
-            strengths.append(f'{comps} similar places are mapped within 2 km (proven but not saturated demand).')
+            strengths.append(f'{comps} similar places are mapped within 5 km (proven but not saturated demand).')
     if cand.get('feasible') is True:
         strengths.append("The platform's feasibility rules mark it as feasible.")
     elif cand.get('feasible') is False:
@@ -397,7 +397,7 @@ def risk_register(s):
         near = comp['within_1000_m']
         lik = 3 if near >= 10 else 2 if near >= 3 else 1
         risks.append({'risk': 'Competition from similar businesses', 'likelihood': lik, 'impact': 2, 'basis': 'measured',
-                      'evidence': f"{comp['count']} matched competitors within 2 km, {near} within 1 km.",
+                      'evidence': f"{comp['count']} matched competitors within 5 km, {near} within 1 km.",
                       'rule': 'Likelihood 3 if 10+ within 1 km, 2 if 3–9, else 1.',
                       'mitigation': 'Differentiate on product, hours or service; visit competitors first.'})
     if rev.get('status') == 'ok':
@@ -416,7 +416,7 @@ def risk_register(s):
         density = pois['in_radius']
         lik = 3 if density < 50 else 2 if density < 300 else 1
         risks.append({'risk': 'Thin or incomplete map data', 'likelihood': lik, 'impact': 2, 'basis': 'measured',
-                      'evidence': f'{density:,} mapped features within 2 km.',
+                      'evidence': f'{density:,} mapped features within 5 km.',
                       'rule': 'Likelihood 3 if < 50 features, 2 if 50–299, else 1.',
                       'mitigation': 'Verify the area in person.'})
     risks.extend([

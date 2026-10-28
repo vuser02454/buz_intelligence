@@ -29,6 +29,212 @@ const feasibilityResultCache = new Map();
 let feasibilityWarmupTimer = null;
 let liveRevenueTimer = null;
 let popularPlacesPanelRequested = false;
+// Was never declared: the first `if (analysisRadiusCircle)` in every flow threw a
+// ReferenceError, so search/GPS/map-click never drew the circle or ran the analysis.
+let analysisRadiusCircle = null;
+
+// ---- Analysis location: the single source of truth ------------------------
+// Every way of choosing a place (search, suggestion, map click, GPS, deep link,
+// startup form) goes through setAnalysisLocation(). Analyses carry a sequence
+// number; a response for anything but the latest request is dropped, so a slow
+// answer for an old place can never overwrite the current one.
+const ANALYSIS_RADIUS_M = 5000;
+const SELECTED_LOCATION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const RECENT_LOCATIONS_KEY = 'recentLocations';
+let currentAnalysisLocation = null;
+let analysisSeq = 0;
+let analysisAbort = null;
+
+function activeMapInstance() {
+    if (typeof dashboardMap !== 'undefined' && dashboardMap) return dashboardMap;
+    return (typeof map !== 'undefined' && map) ? map : null;
+}
+
+function distanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000, toRad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function sameSpot(a, b, toleranceM = 30) {
+    if (!a || !b) return false;
+    const pt = (p) => [Number(p.lat ?? p.latitude), Number(p.lng ?? p.lon ?? p.longitude)];
+    const [lat1, lon1] = pt(a), [lat2, lon2] = pt(b);
+    return distanceMeters(lat1, lon1, lat2, lon2) <= toleranceM;
+}
+
+function getRecentLocations() {
+    try {
+        const list = JSON.parse(localStorage.getItem(RECENT_LOCATIONS_KEY) || '[]');
+        return Array.isArray(list) ? list.filter(l => Number.isFinite(Number(l.lat)) && Number.isFinite(Number(l.lng))) : [];
+    } catch (_e) {
+        return [];
+    }
+}
+
+function rememberRecentLocation(loc) {
+    try {
+        const list = getRecentLocations().filter(l => !sameSpot(l, loc, 150));
+        list.unshift({ lat: loc.lat, lng: loc.lng, name: loc.name, ts: loc.ts });
+        localStorage.setItem(RECENT_LOCATIONS_KEY, JSON.stringify(list.slice(0, 8)));
+    } catch (_e) { /* storage blocked */ }
+}
+
+/** "Marathalli Bridge Service Road, Gandhi Nagar, Munekolala, …, India" -> first three parts. */
+function shortPlaceName(name) {
+    const parts = String(name || '').split(',').map(p => p.trim()).filter(Boolean);
+    return (parts.slice(0, 3).join(', ') || 'Selected Location').slice(0, 120);
+}
+
+/**
+ * The selected area: {name, lat, lng, radius, category, ts, analysis_id}. Written by
+ * every way of choosing a place; read by Popular Locations, crowd analysis, reports and
+ * analytics. `category` is a business category (never an address); analysis_id is set
+ * when an analysis for exactly this area finishes.
+ */
+function setAnalysisLocation(lat, lon, name, opts = {}) {
+    // Re-selecting the same spot (e.g. the map focusing on it) keeps its category and analysis.
+    const same = currentAnalysisLocation && sameSpot(currentAnalysisLocation, { lat, lng: lon });
+    const loc = {
+        lat: Number(lat), lng: Number(lon), name: shortPlaceName(name),
+        radius: ANALYSIS_RADIUS_M,
+        category: String(opts.category || (same ? currentAnalysisLocation.category : '') || '').slice(0, 60),
+        ts: Date.now(), analysis_id: same ? currentAnalysisLocation.analysis_id : null,
+    };
+    currentAnalysisLocation = loc;
+    window.currentAnalysisLocation = loc;
+    saveSelectedLocation(loc.lat, loc.lng, loc.name, loc.category);
+    if (opts.remember !== false) rememberRecentLocation(loc);
+    document.dispatchEvent(new CustomEvent('analysis:location', { detail: loc }));
+    const latInput = document.getElementById('id_latitude');
+    const lonInput = document.getElementById('id_longitude');
+    if (latInput) latInput.value = loc.lat;
+    if (lonInput) lonInput.value = loc.lng;
+    return loc;
+}
+
+/** The place the user is working on now: chosen in this page, else a recent (<12 h) stored choice. */
+function getCurrentAnalysisLocation() {
+    if (currentAnalysisLocation) return currentAnalysisLocation;
+    const stored = getSelectedLocation({ maxAgeMs: SELECTED_LOCATION_MAX_AGE_MS });
+    return stored ? { ...stored, category: stored.category || stored.type || '', radius: stored.radius || ANALYSIS_RADIUS_M } : null;
+}
+
+// ---- Analysis context: the last *finished* area analysis (read by Business Analytics) ----
+const ANALYSIS_CONTEXT_KEY = 'analysisContext';
+
+function saveAnalysisContext(ctx) {
+    const context = {
+        name: shortPlaceName(ctx.name), lat: Number(ctx.lat), lng: Number(ctx.lng),
+        radius: Number(ctx.radius) || ANALYSIS_RADIUS_M, analysis_id: ctx.analysis_id || null, ts: Date.now(),
+    };
+    try { sessionStorage.setItem(ANALYSIS_CONTEXT_KEY, JSON.stringify(context)); } catch (_e) { /* storage blocked */ }
+    if (currentAnalysisLocation && sameSpot(currentAnalysisLocation, context)) currentAnalysisLocation.analysis_id = context.analysis_id;
+    document.dispatchEvent(new CustomEvent('analysis:context', { detail: context }));
+    return context;
+}
+
+/** The finished analysis to show in Business Analytics, or null (then the page shows an empty state). */
+function getAnalysisContext() {
+    try {
+        const ctx = JSON.parse(sessionStorage.getItem(ANALYSIS_CONTEXT_KEY) || 'null');
+        return ctx && Number.isFinite(Number(ctx.lat)) && Number.isFinite(Number(ctx.lng)) ? ctx : null;
+    } catch (_e) {
+        return null;
+    }
+}
+window.getAnalysisContext = getAnalysisContext;
+
+// Street-level zoom used when a specific place (search result, pin, recommendation,
+// favorite, GPS, startup form) is chosen. Popular Locations keeps the whole 5 km view.
+const PIN_ZOOM = 15;
+
+/** Fly the map to a chosen pin (never zooms out if the user is already closer). */
+function zoomToPin(lat, lon, zoom = PIN_ZOOM) {
+    const m = activeMapInstance();
+    if (!m || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) return;
+    const current = typeof m.getZoom === 'function' ? m.getZoom() : zoom;
+    const target = Math.max(zoom, Math.min(current || zoom, 18));
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reduce && typeof m.flyTo === 'function') m.flyTo([Number(lat), Number(lon)], target, { duration: 1.1 });
+    else m.setView([Number(lat), Number(lon)], target);
+}
+window.zoomToPin = zoomToPin;
+
+/** Draw the real 5 km analysis circle and fit the map to it. */
+function drawAnalysisRadius(lat, lon, { fit = true } = {}) {
+    const m = activeMapInstance();
+    if (!m || typeof L === 'undefined') return null;
+    if (analysisRadiusCircle) {
+        try { m.removeLayer(analysisRadiusCircle); } catch (_e) {}
+    }
+    if (radiusCircle) {
+        try { m.removeLayer(radiusCircle); } catch (_e) {}
+        radiusCircle = null;
+    }
+    analysisRadiusCircle = L.circle([lat, lon], {
+        radius: ANALYSIS_RADIUS_M, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 0.04,
+        weight: 2, dashArray: '8, 8', interactive: false,
+    }).addTo(m);
+    if (fit) {
+        try { m.fitBounds(analysisRadiusCircle.getBounds(), { padding: [16, 16] }); } catch (_e) {}
+    }
+    return analysisRadiusCircle;
+}
+
+function setMapStatus(text, { kind = 'info', retry = null } = {}) {
+    const el = document.getElementById('map-status');
+    if (!el) return;
+    el.textContent = text;
+    el.dataset.kind = kind;
+    if (retry) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-outline-light ms-2 py-0';
+        btn.textContent = 'Retry';
+        btn.addEventListener('click', retry);
+        el.appendChild(btn);
+    }
+}
+
+/**
+ * POST to an area-analysis endpoint, waiting through "pending" answers (202:
+ * OpenStreetMap still fetching) up to `maxWaitMs`. Calls onProgress(seconds, pending).
+ * Resolves to {ok, data, status, aborted}.
+ */
+async function postAreaAnalysis(url, body, { signal, onProgress, maxWaitMs = 120000 } = {}) {
+    const started = Date.now();
+    const ticker = onProgress ? setInterval(() => onProgress(Math.round((Date.now() - started) / 1000), false), 1000) : null;
+    try {
+        while (true) {
+            let res;
+            try {
+                res = await fetch(url, {
+                    method: 'POST', signal,
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+                    body: JSON.stringify(body),
+                });
+            } catch (err) {
+                if (err.name === 'AbortError') return { ok: false, aborted: true };
+                return { ok: false, status: 0, data: { error: 'Network error. Check your connection.' } };
+            }
+            const data = await res.json().catch(() => ({ error: `Server error (${res.status}).` }));
+            if (res.status === 202 && data.pending) {
+                if (Date.now() - started > maxWaitMs) {
+                    return { ok: false, status: 504, data: { error: 'OpenStreetMap is very slow right now. Please retry in a minute.' } };
+                }
+                if (onProgress) onProgress(Math.round((Date.now() - started) / 1000), true);
+                await new Promise((r) => setTimeout(r, Math.max(1, Number(data.retry_after) || 4) * 1000));
+                if (signal && signal.aborted) return { ok: false, aborted: true };
+                continue;
+            }
+            return { ok: res.ok && data.success !== false, status: res.status, data };
+        }
+    } finally {
+        if (ticker) clearInterval(ticker);
+    }
+}
 
 async function getFeasibilityWithCache(lat, lon, businessType, ttlMs = 120000) {
     const cacheKey = `${lat.toFixed(4)}|${lon.toFixed(4)}|${String(businessType || '').toLowerCase().trim()}`;
@@ -65,15 +271,53 @@ function isHeatmapPage() {
     return !!(container && typeof L !== 'undefined');
 }
 
+// Monochrome satellite base map: MapTiler imagery (darkened and desaturated by the
+// .mono-sat CSS) plus MapTiler Toner – roads, building outlines and labels – inverted to
+// white and screen-blended on top (.mono-lines). Both layers send CORS headers, so the
+// PDF report can still capture the map (report-generator.js applies the same filters).
+const MAPTILER_KEY = 'SJwCksU5oVIkLOgs9ElB';
+const MAP_ATTRIBUTION = '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>';
+
+function addMonoBaseLayers(targetMap) {
+    const common = { maxZoom: 19, crossOrigin: true };
+    return L.layerGroup([
+        L.tileLayer(`https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,
+            { ...common, attribution: MAP_ATTRIBUTION, className: 'mono-sat', zIndex: 1 }),
+        L.tileLayer(`https://api.maptiler.com/maps/toner-v2/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,
+            { ...common, className: 'mono-lines', zIndex: 2 }),
+    ]).addTo(targetMap);
+}
+
+/** Map control: the selected location's name with a heart to save it to Favorites. */
+function addSaveLocationControl(targetMap) {
+    const Control = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd() {
+            const el = L.DomUtil.create('div', 'leaflet-control mono-fav-control d-none');
+            el.setAttribute('aria-live', 'polite');
+            L.DomEvent.disableClickPropagation(el);
+            const render = (loc) => {
+                const payload = loc && window.Favorites ? window.Favorites.locationPayload(loc) : null;
+                el.classList.toggle('d-none', !payload);
+                if (!payload) return;
+                el.innerHTML = `${window.Favorites.heartHtml(payload)}<span title="${escapeHtml(payload.name)}">${escapeHtml(payload.name)}</span>`;
+                window.Favorites.refresh();
+            };
+            document.addEventListener('analysis:location', (e) => render(e.detail));
+            render(getCurrentAnalysisLocation());
+            return el;
+        },
+    });
+    return new Control().addTo(targetMap);
+}
+
 // Heatmap container initialization - runs after DOM and Leaflet ready
 function initHeatmapContainer() {
     const mapEl = document.getElementById('map');
     if (!mapEl || typeof L === 'undefined') return null;
     map = L.map('map').setView([51.505, -0.09], 13);
-    baseTileLayer = L.tileLayer('https://api.maptiler.com/maps/basic-v2/{z}/{x}/{y}.png?key=SJwCksU5oVIkLOgs9ElB', {
-        attribution: '\u003ca href="https://www.maptiler.com/copyright/" target="_blank"\u003e\u0026copy; MapTiler\u003c/a\u003e \u003ca href="https://www.openstreetmap.org/copyright" target="_blank"\u003e\u0026copy; OpenStreetMap contributors\u003c/a\u003e',
-        maxZoom: 19
-    }).addTo(map);
+    baseTileLayer = addMonoBaseLayers(map);
+    addSaveLocationControl(map);
     // Recalc size after layout (fixes invisible map)
     requestAnimationFrame(function () {
         if (map && map.invalidateSize) map.invalidateSize();
@@ -88,11 +332,7 @@ function initHeatmapContainer() {
         const lat = e.latlng.lat;
         const lon = e.latlng.lng;
 
-        // Update form coordinates
-        const latInput = document.getElementById('id_latitude');
-        const lonInput = document.getElementById('id_longitude');
-        if (latInput) latInput.value = lat;
-        if (lonInput) lonInput.value = lon;
+        setAnalysisLocation(lat, lon, 'Map Selection');
 
         // Add temporary marker
         if (userMarker) {
@@ -101,27 +341,12 @@ function initHeatmapContainer() {
         userMarker = L.marker([lat, lon]).addTo(map)
             .bindPopup('<b>Selected Location</b><br><small class="text-primary"><i class="fas fa-radar"></i> 5 km Analysis Zone Active</small>').openPopup();
 
-        if (analysisRadiusCircle) {
-            try { map.removeLayer(analysisRadiusCircle); } catch (_e) {}
-        }
-        analysisRadiusCircle = L.circle([lat, lon], {
-            radius: 5000,
-            color: '#2563eb',
-            fillColor: '#3b82f6',
-            fillOpacity: 0.12,
-            weight: 2,
-            dashArray: '6, 6'
-        }).addTo(map).bindTooltip('5 km Analysis Zone', { permanent: false, direction: 'top' });
-
-        saveSelectedLocation(lat, lon, 'Map Selection', '');
-
         // Update accuracy (clicking on map has high accuracy)
         updateAccuracyMeter(95);
         showLocationError('');
 
-        // Automatically find popular places around the clicked location
-        await findPopularPlaces(lat, lon, false);
-        await updateCrowdIntensityDropdown(lat, lon);
+        // Popular places and the crowd heatmap come back in one response.
+        await findPopularPlaces(lat, lon, false, { name: 'Map Selection' });
         await analyzeLocationIntelligence(lat, lon, 'Map Selection');
 
         notifyChatFromMap(`Location set by map click (${lat.toFixed(4)}, ${lon.toFixed(4)}). Popular places and crowd intensity updated.`);
@@ -182,7 +407,7 @@ function updateAccuracyMeter(accuracy) {
     }
 }
 
-// Calculate accuracy based on location precision (always returns 5â€“100)
+// Calculate accuracy based on location precision (always returns 5–100)
 function calculateAccuracy(position) {
     const accuracyMeters = position.coords.accuracy;
     if (!accuracyMeters || accuracyMeters <= 0) return 95;
@@ -238,12 +463,13 @@ function redirectToDashboardAIIfNeeded() {
     return false;
 }
 
-function getSelectedLocation() {
+function getSelectedLocation(opts = {}) {
     try {
         const raw = localStorage.getItem('selectedLocation');
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (!parsed || Number.isNaN(Number(parsed.lat)) || Number.isNaN(Number(parsed.lng))) return null;
+        if (opts.maxAgeMs && (!parsed.ts || Date.now() - parsed.ts > opts.maxAgeMs)) return null;
         return parsed;
     } catch (_err) {
         return null;
@@ -265,7 +491,7 @@ function showHeatmapToast(message, type) {
 // Search Location (logic)
 async function searchLocation(query) {
     if (!query) {
-        alert('Please enter a location to search');
+        showHeatmapToast('Please enter a location to search', 'info');
         return;
     }
     // Clear previous AI recommendation
@@ -313,34 +539,28 @@ async function searchLocation(query) {
                         shadowSize: [41, 41]
                     })
                 }).addTo(map)
-                    .bindPopup(`<b>${result.display_name}</b><br><button onclick="selectSearchResult(${lat}, ${lon})" style="margin-top: 5px; padding: 5px 10px; background: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer;">Select This Location</button>`);
+                    .bindPopup(`<b>${escapeHtml(result.display_name)}</b><br><button onclick="selectSearchResult(${lat}, ${lon}, this.dataset.name)" data-name="${escapeHtml((result.display_name || '').split(',').slice(0, 2).join(','))}" style="margin-top: 5px; padding: 5px 10px; background: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer;">Select This Location</button>`);
 
                 searchMarkers.push(marker);
             });
 
-            // Center map on first result
+            // Analyse the best match right away (other matches stay as red pins to pick instead).
             if (data.results.length > 0) {
                 const firstResult = data.results[0];
                 const lat = parseFloat(firstResult.lat);
                 const lon = parseFloat(firstResult.lon);
-                map.setView([lat, lon], 15);
-                updateAccuracyMeter(85);
+                const name = (firstResult.display_name || query).split(',').slice(0, 2).join(',').trim();
                 showLocationError('');
-
-                // Update form coordinates
-                const latField = document.getElementById('id_latitude');
-                const lonField = document.getElementById('id_longitude');
-                if (latField) latField.value = lat;
-                if (lonField) lonField.value = lon;
-
+                await selectSearchResult(lat, lon, name);
                 return { success: true, lat, lon };
             }
+            showHeatmapToast(`No place found for "${query}" in India.`, 'info');
         } else {
-            alert('Error searching location: ' + (data.error || data.message));
+            showHeatmapToast('Error searching location: ' + (data.error || data.message), 'error');
         }
     } catch (error) {
         console.error('Error:', error);
-        alert('Error searching location');
+        showHeatmapToast('Error searching location', 'error');
     }
     return { success: false };
 }
@@ -437,7 +657,6 @@ async function fetchAutocompleteSuggestions(query, targetListElement) {
                 updateAccuracyMeter(85);
                 // Automatically find popular places around the searched location
                 await findPopularPlaces(lat, lon, false);
-                await updateCrowdIntensityDropdown(lat, lon);
                 await analyzeLocationIntelligence(lat, lon, result.display_name || 'Search Selection');
                 notifyChatFromMap(`Selected: ${result.display_name}. Map and crowd data updated.`);
             });
@@ -599,42 +818,28 @@ async function findMyLocation(btnId = 'find-location-btn') {
         }
         geoLog('Location obtained:', { lat, lon, accuracy, approximate });
         showLocationError('');
-        const activeMap = (typeof dashboardMap !== 'undefined' && dashboardMap) ? dashboardMap : (typeof map !== 'undefined' ? map : null);
+        // GPS is a location choice like any other: later scans and reports must use it.
+        setAnalysisLocation(lat, lon, approximate ? 'My approximate location' : 'My location');
+        const activeMap = activeMapInstance();
         if (activeMap) {
             if (userMarker) {
                 try { activeMap.removeLayer(userMarker); } catch (_e) {}
             }
             userMarker = L.marker([lat, lon]).addTo(activeMap)
                 .bindPopup(approximate ? 'Your approximate location (from IP)' : 'Your Location').openPopup();
-            activeMap.setView([lat, lon], 14);
-
-            if (analysisRadiusCircle) {
-                try { activeMap.removeLayer(analysisRadiusCircle); } catch (_e) {}
-            }
-            analysisRadiusCircle = L.circle([lat, lon], {
-                radius: 5000,
-                color: '#2563eb',
-                fillColor: '#3b82f6',
-                fillOpacity: 0.12,
-                weight: 2,
-                dashArray: '6, 6'
-            }).addTo(activeMap).bindTooltip('5 km Radius Zone', { permanent: false, direction: 'top' });
+            drawAnalysisRadius(lat, lon, { fit: false });
+            zoomToPin(lat, lon);
         }
         updateAccuracyMeter(accuracy != null ? accuracy : (approximate ? 30 : 95));
 
-        const latField = document.getElementById('id_latitude');
-        const lonField = document.getElementById('id_longitude');
-        if (latField) latField.value = lat;
-        if (lonField) lonField.value = lon;
-
-        await sendLocationToBackend(lat, lon, accuracy, approximate ? 'ip' : 'gps');
+        sendLocationToBackend(lat, lon, accuracy, approximate ? 'ip' : 'gps');
         resetBtn();
         return { success: true, lat, lon };
     }
 
     if (!isGeolocationSecure()) {
         showLocationError('Location requires HTTPS or localhost.');
-        geoLog('Insecure context â€” geolocation disabled');
+        geoLog('Insecure context — geolocation disabled');
         const ipLoc = await getLocationViaIP();
         if (ipLoc) return await onLocationSuccess(ipLoc.lat, ipLoc.lon, 30, true);
         else resetBtn();
@@ -691,7 +896,6 @@ safeOn('find-location-btn', 'click', async function () {
     const geoRes = await findMyLocation('find-location-btn');
     if (geoRes && geoRes.success && typeof geoRes.lat === 'number') {
         await findPopularPlaces(geoRes.lat, geoRes.lon, false);
-        await updateCrowdIntensityDropdown(geoRes.lat, geoRes.lon);
     }
 });
 
@@ -802,19 +1006,13 @@ function updateBusinessIntelligencePanel(payload, sourceLabel = 'Selected Locati
     const peak = revenue.peak_hour_revenue || 0;
     const crowdScore = payload.crowd_score ?? '--';
 
-    const revenueDisplay = document.getElementById('revenue-prediction-display');
-    const revenueVal = document.getElementById('revenue-value');
+    // The map footer shows the area analysis (mapped places, summed estimates); this
+    // single-business forecast must not overwrite it (it used to put the capped
+    // "crowd score" of 100 into the footer).
     const dailyVal = document.getElementById('daily-revenue-value');
     const peakVal = document.getElementById('peak-revenue-value');
-    const scoreVal = document.getElementById('crowd-score-value');
-
-    if (revenueDisplay) revenueDisplay.classList.remove('d-none');
-    animateNumberTo(revenueVal, monthly, 1200, formatINR);
     animateNumberTo(dailyVal, daily, 1000, formatINR);
     animateNumberTo(peakVal, peak, 1000, formatINR);
-    if (scoreVal) scoreVal.textContent = String(crowdScore);
-
-    startLiveRevenueSimulation(monthly);
 
     const monthlyBi = document.getElementById('bi-estimated-monthly');
     const dailyBi = document.getElementById('bi-daily-revenue');
@@ -832,14 +1030,15 @@ function updateBusinessIntelligencePanel(payload, sourceLabel = 'Selected Locati
 
     const suggestionContent = document.getElementById('business-suggestion-content');
     if (suggestionContent) {
-        const recHtml = recommendations.map((r) => `<li>${r}</li>`).join('');
+        const recHtml = recommendations.map((r) => `<li>${escapeHtml(r)}</li>`).join('');
         const recommendedBusiness = payload.recommended_business || payload.business_type || 'General Business';
         suggestionContent.innerHTML = `
             <div class="bi-summary-head">
-                <strong>${sourceLabel}</strong>
+                <strong>${escapeHtml(sourceLabel)}</strong>
+                <span class="badge bg-secondary ms-2">Est. ${formatINR(monthly)}/month</span>
                 <span class="badge bg-info ms-2">Feasibility ${payload.feasibility_score ?? revenue.potential_score ?? '--'}</span>
             </div>
-            <div class="mt-2 small text-light">Recommended Business: <strong>${recommendedBusiness}</strong></div>
+            <div class="mt-2 small text-light">Recommended Business: <strong>${escapeHtml(recommendedBusiness)}</strong></div>
             <div class="mt-2 small text-light">Daypart: ${revenue.daypart || 'Live'}</div>
             <ul class="mt-2 mb-0">${recHtml || '<li>Keep monitoring this area for better trend confidence.</li>'}</ul>
         `;
@@ -1051,7 +1250,7 @@ window.panToPlace = function (index) {
         const place = lastPopularPlacesResult.places[index];
         const lat = place.lat || place.center.lat;
         const lon = place.lon || place.center.lon;
-        map.setView([lat, lon], 16);
+        zoomToPin(lat, lon, 16);
         if (popularPlacesMarkers[index]) {
             popularPlacesMarkers[index].openPopup();
         }
@@ -1233,111 +1432,127 @@ function setDashboardAIEmptyState(message) {
     }
 }
 
-async function loadRecommendationCardsForLocation(lat, lon, locName = 'Selected Location') {
+async function loadRecommendationCardsForLocation(lat, lon, locName = 'Selected Location', category = '') {
     const row = document.getElementById('business-recommendations-row');
     const dashContainer = document.getElementById('dashboard-recommendations-cards-container');
+    const setBoth = (html) => { if (row) row.innerHTML = html; if (dashContainer) dashContainer.innerHTML = html; };
+    const spinner = (text) => `<div class="text-center text-muted p-5 col-12"><div class="spinner-border text-primary mb-3" role="status"></div><p>${text}</p></div>`;
+    const subtitle = document.getElementById('recommendations-subtitle');
+    if (subtitle) subtitle.textContent = `Opportunities within 5 km of ${locName}${category ? ` · ${category.replace(/_/g, ' ')}` : ''}, ranked from live map data, the ML model and the revenue engine`;
+    setBoth(spinner(`Analysing the 5 km area around <strong>${escapeHtml(locName)}</strong>…`));
 
-    if (row) {
-        row.innerHTML = `<div class="text-center text-muted p-5 col-12"><div class="spinner-border text-primary mb-3" role="status"></div><p>Analyzing 5 km trading zone for <strong>${locName}</strong>...</p></div>`;
+    const result = await postAreaAnalysis('/api/location-recommendations/',
+        { latitude: lat, longitude: lon, location_name: locName, category: category || undefined }, {
+            onProgress: (secs, pending) => setBoth(spinner(pending
+                ? `OpenStreetMap is busy – still fetching data for <strong>${escapeHtml(locName)}</strong> (${secs}s)…`
+                : `Analysing the 5 km area around <strong>${escapeHtml(locName)}</strong> (${secs}s)…`)),
+        });
+    if (!result.ok) {
+        const msg = (result.data && result.data.error) || 'Unable to fetch recommendations.';
+        setBoth(`<div class="text-center text-muted p-5 col-12"><i class="fas fa-triangle-exclamation fa-3x mb-3 opacity-50"></i>
+            <p>Could not load recommendations: ${escapeHtml(msg)}</p>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="recs-retry-btn">Retry</button></div>`);
+        document.getElementById('recs-retry-btn')?.addEventListener('click', () => loadRecommendationCardsForLocation(lat, lon, locName, category));
+        return;
     }
-    if (dashContainer) {
-        dashContainer.innerHTML = `<div class="text-center text-muted p-5 col-12"><div class="spinner-border text-primary mb-3" role="status"></div><p>Analyzing 5 km trading zone for <strong>${locName}</strong>...</p></div>`;
+    const recs = Array.isArray(result.data.recommendations) ? result.data.recommendations : [];
+    if (!recs.length) {
+        setBoth(`<div class="text-center text-muted p-5 col-12"><i class="fas fa-map-pin fa-3x mb-3 opacity-50"></i>
+            <p>No ${category ? escapeHtml(category.replace(/_/g, ' ')) + ' ' : ''}opportunities could be estimated for ${escapeHtml(locName)} within 5 km.</p></div>`);
+        return;
     }
-
-    try {
-        const response = await fetch(`/api/location-recommendations/?latitude=${lat}&longitude=${lon}&location_name=${encodeURIComponent(locName)}&radius=5000`);
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-            throw new Error(data.error || data.message || 'Unable to fetch recommendations');
-        }
-
-        const recs = Array.isArray(data.recommendations) ? data.recommendations : [];
-        if (!recs.length) {
-            const emptyMsg = `
-                <div class="text-center text-muted p-5 col-12">
-                    <i class="fas fa-map-pin fa-3x mb-3 opacity-50"></i>
-                    <p>No recommendation opportunities found for ${locName} within 5 km.</p>
-                </div>
-            `;
-            if (row) row.innerHTML = emptyMsg;
-            if (dashContainer) dashContainer.innerHTML = emptyMsg;
-            return;
-        }
-
-        renderBusinessRecommendationCards(recs, lat, lon);
-    } catch (err) {
-        console.error('Recommendation cards load failed:', err);
-        const errMsg = `
-            <div class="text-center text-muted p-5 col-12">
-                <i class="fas fa-triangle-exclamation fa-3x mb-3 opacity-50"></i>
-                <p>Could not load recommendations: ${err.message}</p>
-            </div>
-        `;
-        if (row) row.innerHTML = errMsg;
-        if (dashContainer) dashContainer.innerHTML = errMsg;
-    }
+    renderBusinessRecommendationCards(recs, lat, lon, result.data.comparison);
+    if (window.SynergyIntel) window.SynergyIntel.setRecommendations(recs, result.data.comparison, lat, lon);
 }
 
-function initDashboardRecsDropdown() {
+function recLocationValue(loc) {
+    return JSON.stringify({ lat: Number(loc.lat), lng: Number(loc.lng ?? loc.longitude), name: loc.name || 'Selected Location' });
+}
+
+/** Location dropdown = current searched location + recent searches + saved favorites; plus a category filter. */
+async function initDashboardRecsDropdown() {
     const dropdown = document.getElementById('dashboard-rec-location-select');
+    const categorySelect = document.getElementById('dashboard-rec-category-select');
     const refreshBtn = document.getElementById('btn-dashboard-refresh-recs');
-    if (!dropdown || dropdown._initialized) return;
-    dropdown._initialized = true;
+    if (!dropdown) return;
 
-    let stored = getSelectedLocation();
-    if (stored && stored.lat && stored.lng) {
-        const val = `${stored.lat},${stored.lng},${stored.name || 'Selected Location'}`;
-        let exists = false;
-        for (let i = 0; i < dropdown.options.length; i++) {
-            if (dropdown.options[i].value === val) {
-                exists = true;
-                dropdown.selectedIndex = i;
-                break;
-            }
-        }
-        if (!exists) {
+    const current = getCurrentAnalysisLocation();
+    const seen = [];
+    const addGroup = (label, items) => {
+        const fresh = items.filter(l => Number.isFinite(Number(l.lat)) && !seen.some(s => sameSpot(s, l, 150)));
+        if (!fresh.length) return;
+        const group = document.createElement('optgroup');
+        group.label = label;
+        fresh.forEach(l => {
+            seen.push(l);
             const opt = document.createElement('option');
-            opt.value = val;
-            opt.textContent = `📍 ${stored.name || 'Searched Location'}`;
-            dropdown.insertBefore(opt, dropdown.options[1]);
-            dropdown.selectedIndex = 1;
-        }
-    } else {
-        dropdown.selectedIndex = 1;
-    }
-
-    const onLocationChange = async () => {
-        const selectedVal = dropdown.value;
-        if (!selectedVal) return;
-        const parts = selectedVal.split(',');
-        if (parts.length >= 2) {
-            const lat = parseFloat(parts[0]);
-            const lon = parseFloat(parts[1]);
-            const name = parts.slice(2).join(',') || 'Selected Area';
-            saveSelectedLocation(lat, lon, name, '');
-            const subtitle = document.getElementById('recommendations-subtitle');
-            if (subtitle) {
-                subtitle.textContent = `Location-specific commercial opportunities within 5 km trading zone for ${name}`;
-            }
-            await loadRecommendationCardsForLocation(lat, lon, name);
-            if (typeof analyzeLocationIntelligence === 'function') {
-                analyzeLocationIntelligence(lat, lon, name);
-            }
-        }
+            opt.value = recLocationValue(l);
+            opt.textContent = l.name || `${Number(l.lat).toFixed(4)}, ${Number(l.lng).toFixed(4)}`;
+            group.appendChild(opt);
+        });
+        dropdown.appendChild(group);
     };
+    dropdown.innerHTML = `<option value="">${current ? 'Choose a location…' : 'Search a location on the map first…'}</option>`;
+    if (current) addGroup('Current location', [current]);
+    addGroup('Recent searches', getRecentLocations());
+    try {
+        if (window.SupabaseAuth && await window.SupabaseAuth.ready && window.Favorites) {
+            const favs = await window.Favorites.load();
+            addGroup('Saved favorites', (favs || []).map(f => ({ lat: f.latitude, lng: f.longitude, name: f.name })));
+        }
+    } catch (_e) { /* signed out or favorites unavailable */ }
+    if (current) dropdown.selectedIndex = 1;
 
-    dropdown.addEventListener('change', onLocationChange);
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', onLocationChange);
+    if (categorySelect && categorySelect.options.length <= 1) {
+        try {
+            const res = await fetch('/api/business-types/');
+            const data = await res.json();
+            (data.business_types || []).forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.value;
+                opt.textContent = t.label;
+                categorySelect.appendChild(opt);
+            });
+        } catch (_e) { /* filter stays at "All categories" */ }
     }
+
+    if (dropdown._initialized) return;
+    dropdown._initialized = true;
+    const reload = async () => {
+        if (!dropdown.value) return;
+        const loc = JSON.parse(dropdown.value);
+        setAnalysisLocation(loc.lat, loc.lng, loc.name);
+        await loadRecommendationCardsForLocation(loc.lat, loc.lng, loc.name, categorySelect ? categorySelect.value : '');
+        analyzeLocationIntelligence(loc.lat, loc.lng, loc.name);
+    };
+    dropdown.addEventListener('change', reload);
+    if (categorySelect) categorySelect.addEventListener('change', reload);
+    if (refreshBtn) refreshBtn.addEventListener('click', reload);
+}
+
+function showRecommendationsEmptyState() {
+    const html = `<div class="text-center text-muted p-5 col-12"><i class="fas fa-map-marker-alt fa-3x mb-3 opacity-50"></i>
+        <p>Search a location on the map (or pick a recent search or saved favorite above) to see recommendations for that area.</p>
+        <a href="/dashboard/?auto_map=true" class="btn btn-primary-blue btn-sm mt-2">Open Map</a></div>`;
+    const dash = document.getElementById('dashboard-recommendations-cards-container');
+    const row = document.getElementById('business-recommendations-row');
+    if (dash) dash.innerHTML = html;
+    if (row) row.innerHTML = html;
+}
+
+async function loadRecommendationsForCurrentLocation() {
+    await initDashboardRecsDropdown();
+    const loc = getCurrentAnalysisLocation();
+    if (!loc) { showRecommendationsEmptyState(); return; }
+    const categorySelect = document.getElementById('dashboard-rec-category-select');
+    analyzeLocationIntelligence(loc.lat, loc.lng, loc.name || 'Selected Location');
+    await loadRecommendationCardsForLocation(loc.lat, loc.lng, loc.name || 'Selected Location', categorySelect ? categorySelect.value : '');
 }
 
 async function initDashboardAIFromStorage() {
     if (!isDashboardPage()) return;
-    initDashboardRecsDropdown();
     const query = new URLSearchParams(window.location.search);
     const forceAI = query.get('ai') === 'true';
-    let stored = getSelectedLocation();
     const launchpad = document.getElementById('dashboard-launchpad');
     const dynamicMapContainer = document.getElementById('dynamic-map-container');
     const analyticsSection = document.getElementById('dashboard-analytics-section');
@@ -1359,309 +1574,253 @@ async function initDashboardAIFromStorage() {
     if (dynamicMapContainer) dynamicMapContainer.classList.add('d-none');
     const aiTab = document.getElementById('dash-ai-tab');
     if (aiTab) aiTab.click();
-
-    if (!stored || !stored.lat || !stored.lng) {
-        stored = { lat: 12.9716, lng: 77.5946, name: 'MG Road, Bengaluru' };
-        saveSelectedLocation(stored.lat, stored.lng, stored.name, '');
-    }
-
-    await analyzeLocationIntelligence(stored.lat, stored.lng, stored.name || 'Selected Location');
-    await loadRecommendationCardsForLocation(stored.lat, stored.lng, stored.name || 'Selected Location');
+    // The data itself is loaded by openDashboardDataOnlyMode() once the auth gate passes.
 }
 
+/** Dashboard view with only the Top 5 Business Recommendations for the current location. */
+async function openRecommendationsView() {
+    if (!isDashboardPage()) {
+        window.location.href = '/dashboard/?recs=true';
+        return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    ['ai', 'auto_map', 'form'].forEach(k => params.delete(k));
+    params.set('recs', 'true');
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+
+    ['dashboard-launchpad', 'dynamic-map-container', 'popular-places-panel', 'business-intelligence-panel',
+     'dashboard-startup-form-section'].forEach(id => document.getElementById(id)?.classList.add('d-none'));
+    document.querySelector('.dashboard-main')?.classList.remove('map-active');
+    document.querySelector('.dashboard-header')?.classList.remove('d-none');
+    const analytics = document.getElementById('dashboard-analytics-section');
+    if (analytics) { analytics.classList.remove('d-none'); analytics.style.display = ''; }
+    const recs = document.getElementById('business-recommendations-section');
+    if (recs) recs.classList.remove('d-none');
+    popularPlacesPanelRequested = false;
+    if (typeof setActiveSidebarLink === 'function') setActiveSidebarLink('sidebar-recs-link');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    await loadRecommendationsForCurrentLocation();
+}
+window.openRecommendationsView = openRecommendationsView;
+
+function gateRecommendations(e) {
+    if (e) e.preventDefault();
+    if (window.requireSupabaseAuth) window.requireSupabaseAuth('Business Recommendations', openRecommendationsView);
+    else openRecommendationsView();
+}
+
+/**
+ * Business Analytics view (?ai=true): the projected-revenue 3D graph for the last finished
+ * map analysis, with the Top 5 recommendations below it. Opened by the existing sidebar link
+ * "Business Analytics", the "AI Recommender" hero button, the "AI Business Recommender" and
+ * "Revenue Intelligence" tiles, and the ?ai=true deep link.
+ */
 async function openDashboardDataOnlyMode(targetTab) {
     if (!isDashboardPage()) return;
-    initDashboardRecsDropdown();
 
     const params = new URLSearchParams(window.location.search);
+    ['auto_map', 'recs', 'form'].forEach(k => params.delete(k));
     params.set('ai', 'true');
-    params.delete('auto_map');
-    const nextUrl = `${window.location.pathname}?${params.toString()}`;
-    window.history.replaceState({}, '', nextUrl);
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
 
-    const launchpad = document.getElementById('dashboard-launchpad');
-    const dynamicMapContainer = document.getElementById('dynamic-map-container');
+    ['dashboard-launchpad', 'dynamic-map-container', 'popular-places-panel', 'dashboard-startup-form-section']
+        .forEach(id => document.getElementById(id)?.classList.add('d-none'));
+    document.querySelector('.dashboard-main')?.classList.remove('map-active');
     const analyticsSection = document.getElementById('dashboard-analytics-section');
-    const aiPanel = document.getElementById('business-intelligence-panel');
-    const popularPanel = document.getElementById('popular-places-panel');
-    const recsSection = document.querySelector('.business-recommendations-section');
-
-    if (launchpad) launchpad.classList.add('d-none');
-    if (dynamicMapContainer) dynamicMapContainer.classList.add('d-none');
-    if (analyticsSection) analyticsSection.classList.remove('d-none');
-    if (aiPanel) aiPanel.classList.remove('d-none');
-    if (popularPanel) popularPanel.classList.add('d-none');
-    if (recsSection) recsSection.classList.remove('d-none');
+    if (analyticsSection) { analyticsSection.classList.remove('d-none'); analyticsSection.style.display = ''; }
+    document.getElementById('business-intelligence-panel')?.classList.remove('d-none');
+    document.getElementById('business-recommendations-section')?.classList.remove('d-none');
+    document.getElementById('dash-recs-tab')?.click();   // the pane that holds the graph
     popularPlacesPanelRequested = false;
+    setActiveSidebarLink('sidebar-ai-link');
 
-    if (typeof setActiveSidebarLink === 'function') {
-        setActiveSidebarLink('sidebar-ai-link');
-    }
-
-    if (targetTab === 'ai') {
-        const aiTab = document.getElementById('dash-ai-tab');
-        if (aiTab) aiTab.click();
-    } else {
-        const recsTab = document.getElementById('dash-recs-tab');
-        if (recsTab) recsTab.click();
-    }
-
-    setTimeout(() => {
-        window.dispatchEvent(new Event('resize'));
-    }, 150);
-
-    let stored = getSelectedLocation();
-    if (!stored || !stored.lat || !stored.lng) {
-        stored = { lat: 12.9716, lng: 77.5946, name: 'MG Road, Bengaluru' };
-        saveSelectedLocation(stored.lat, stored.lng, stored.name, '');
-    }
-
-    await analyzeLocationIntelligence(stored.lat, stored.lng, stored.name || 'Selected Location');
-    await loadRecommendationCardsForLocation(stored.lat, stored.lng, stored.name || 'Selected Location');
+    // The graph reads the saved analysis context: no recomputation, no default location.
+    if (window.RevenueAnalytics3D) window.RevenueAnalytics3D.show(getAnalysisContext());
+    if (window.SynergyIntel) window.SynergyIntel.show(getAnalysisContext());
+    await loadRecommendationsForCurrentLocation();
 }
 
+// A new map analysis finished while Business Analytics is on screen: switch the graph to it.
+document.addEventListener('analysis:context', (e) => {
+    const root = document.getElementById('revenue-analytics-3d');
+    if (window.RevenueAnalytics3D && root && root.offsetParent !== null) window.RevenueAnalytics3D.show(e.detail);
+    if (window.SynergyIntel && root && root.offsetParent !== null) window.SynergyIntel.show(e.detail);
+});
+
 // Function to find popular places (reusable)
-let _isPopularPlacesScanning = false;
-async function findPopularPlaces(lat, lon, showAlert = true) {
-    if (_isPopularPlacesScanning) {
-        if (showAlert) showHeatmapToast('Analysis already in progress, please wait...', 'info');
-        return { success: false, in_progress: true };
+function formatINRCurrency(value) {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value) || 0);
+}
+
+function placeLatLon(place) {
+    if (place.lat != null && place.lon != null) return [Number(place.lat), Number(place.lon)];
+    if (place.center) return [Number(place.center.lat), Number(place.center.lon)];
+    return null;
+}
+
+function popularPlacePopup(place) {
+    const name = escapeHtml(place.tags?.name || place.tags?.amenity || 'Popular Place');
+    const amenity = escapeHtml(place.tags?.amenity || place.tags?.shop || place.tags?.tourism || 'Unknown');
+    let html = `<div class="popup-card"><div class="popup-header"><strong class="popup-title">${name}</strong>
+        <span class="popup-type">${amenity}</span></div>`;
+    const r = place.revenue_data;
+    if (r && r.estimated_monthly_revenue) {
+        const healthClass = r.business_health === 'Optimal' ? 'text-success' : (r.business_health === 'Overloaded' ? 'text-danger' : 'text-warning');
+        html += `<div class="popup-stats">
+            <div class="stat-row main-stat"><span>Est. monthly revenue</span><span class="stat-value monitor-glow">${formatINRCurrency(r.estimated_monthly_revenue)}</span></div>
+            <div class="stat-row"><span>Est. daily avg</span><span class="stat-value">${formatINRCurrency(r.estimated_daily_revenue)}</span></div>
+            <div class="stat-row"><span>Health</span><span class="stat-value ${healthClass}">${escapeHtml(r.business_health)}</span></div>
+            <div class="stat-row"><span>Potential Score</span><div class="progress-mini"><div class="progress-bar" style="width: ${Number(r.potential_score) || 0}%"></div></div></div>
+        </div><div class="popup-footer"><small>Estimates from the revenue engine · ${place.distance_m ? (place.distance_m / 1000).toFixed(1) + ' km away' : ''}</small></div>`;
     }
-    _isPopularPlacesScanning = true;
+    return html + '</div>';
+}
 
-    // Loading states for trigger buttons
-    const triggerButtons = [
-        document.getElementById('popular-places-btn'),
-        document.getElementById('dashboard-popular-places-btn')
-    ].filter(Boolean);
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
+function renderAreaFooter(data) {
+    const revenueDisplay = document.getElementById('revenue-prediction-display');
+    if (!revenueDisplay) return;
+    revenueDisplay.classList.remove('d-none');
+    const countEl = document.getElementById('crowd-score-value');
+    const revenueEl = document.getElementById('revenue-value');
+    const count = Number(data.pois_analysed ?? data.active_sensors_count ?? data.total_pois ?? 0);
+    if (countEl) {
+        countEl.textContent = count.toLocaleString('en-IN');
+        countEl.style.color = '';   // black/white design system: no traffic-light colours
+        const label = countEl.parentElement?.querySelector('.revenue-label');
+        if (label) label.textContent = 'Mapped Places (5 km)';
+    }
+    if (revenueEl) {
+        const revenue = Number(data.total_area_revenue ?? data.estimated_revenue ?? 0);
+        revenueEl.textContent = revenue > 0 ? formatINRCurrency(revenue) : '₹--';
+        const item = document.getElementById('revenue-estimate-item') || revenueEl.parentElement;
+        if (item) item.title = (data.estimated_revenue_basis || 'Estimate from the revenue engine') + '. Not measured sales.';
+    }
+}
+
+function clearPopularPlaceMarkers(activeMap) {
+    (popularPlacesMarkers || []).forEach(marker => { try { activeMap.removeLayer(marker); } catch (_e) {} });
+    popularPlacesMarkers = [];
+}
+
+/**
+ * Popular places + crowd heatmap for the 5 km circle around (lat, lon).
+ * A newer call supersedes an older one (the older response is ignored).
+ * Returns {success, count} or {success:false, error, superseded}.
+ */
+async function findPopularPlaces(lat, lon, showAlert = true, opts = {}) {
+    lat = Number(lat);
+    lon = Number(lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { success: false, error: 'Invalid location' };
+
+    const name = opts.name || (currentAnalysisLocation && sameSpot(currentAnalysisLocation, { lat, lng: lon }) ? currentAnalysisLocation.name : 'Selected Location');
+    if (!currentAnalysisLocation || !sameSpot(currentAnalysisLocation, { lat, lng: lon })) {
+        setAnalysisLocation(lat, lon, name);
+    }
+    if (analysisAbort) analysisAbort.abort();
+    analysisAbort = new AbortController();
+    const seq = ++analysisSeq;
+    const isCurrent = () => seq === analysisSeq;
+
+    const triggerButtons = [document.getElementById('popular-places-btn'), document.getElementById('dashboard-popular-places-btn')].filter(Boolean);
     triggerButtons.forEach(btn => {
         btn.disabled = true;
-        btn.dataset.originalHtml = btn.innerHTML;
+        if (!btn.dataset.originalHtml) btn.dataset.originalHtml = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Scanning 5 km...';
     });
 
-    const statusEl = document.getElementById('map-status');
-    if (statusEl) statusEl.textContent = 'Scanning 5 km trading zone...';
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const activeMap = activeMapInstance();
+    // view 'pin' (default): fly in to the chosen place; 'area': show the whole 5 km circle.
+    const areaView = opts.view === 'area';
+    if (activeMap) {
+        drawAnalysisRadius(lat, lon, { fit: areaView && opts.fit !== false });
+        if (!areaView) zoomToPin(lat, lon);
+    }
+    setMapStatus('Scanning 5 km area: fetching OpenStreetMap data…');
 
     try {
-        const response = await fetch('/find-popular-places/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
+        const result = await postAreaAnalysis('/find-popular-places/', { latitude: lat, longitude: lon, name }, {
+            signal: analysisAbort.signal,
+            onProgress: (secs, pending) => {
+                if (!isCurrent()) return;
+                setMapStatus(pending
+                    ? `OpenStreetMap is busy – still fetching (${secs}s)…`
+                    : `Scanning 5 km area: fetching OpenStreetMap data (${secs}s)…`);
+                triggerButtons.forEach(btn => { btn.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>Scanning… ${secs}s`; });
             },
-            body: JSON.stringify({ latitude: lat, longitude: lon }),
-            signal: controller.signal
         });
+        if (!isCurrent() || result.aborted) return { success: false, superseded: true };
 
-        clearTimeout(timeoutId);
-
-        let data;
-        try {
-            data = await response.json();
-        } catch (e) {
-            throw new Error(response.status === 0 ? 'Network error. Check your connection.' : 'Server returned invalid response.');
-        }
-        if (!response.ok) {
-            const err = data?.error || data?.message || 'Server error. Please try again.';
-            if (showAlert) showHeatmapToast('Error finding popular places: ' + err, 'error');
+        const data = result.data || {};
+        if (!result.ok) {
+            const err = data.error || data.message || 'Unable to fetch popular places.';
+            setMapStatus(err, { kind: 'error', retry: () => findPopularPlaces(lat, lon, true, { name, view: opts.view }) });
+            if (showAlert) showHeatmapToast('Scan failed: ' + err, 'error');
+            if (typeof updateCrowdIntensityDropdown === 'function') {
+                await updateCrowdIntensityDropdown(lat, lon, { success: false, error: err });
+            }
             return { success: false, error: err };
         }
+        if (data.center && !sameSpot(data.center, { lat, lng: lon }, 5)) {
+            return { success: false, superseded: true };  // answer for another place
+        }
 
-        if (data.success) {
-            const activeMap = (typeof dashboardMap !== 'undefined' && dashboardMap) ? dashboardMap : (typeof map !== 'undefined' ? map : null);
-
-            // Clear previous popular places markers if map is initialized
-            if (activeMap) {
-                if (Array.isArray(popularPlacesMarkers)) {
-                    popularPlacesMarkers.forEach(marker => {
-                        try { activeMap.removeLayer(marker); } catch (e) {}
-                    });
-                }
-                popularPlacesMarkers = [];
-
-                // Clear previous radius circle if exists
-                if (radiusCircle) {
-                    try { activeMap.removeLayer(radiusCircle); } catch (e) {}
-                    radiusCircle = null;
-                }
-            }
-
-            // Add markers for popular places only when explicitly requested (keeps Live Crowd Heatmap clean)
-            const POPULAR_PLACES_MARKER_LIMIT = 15;
-            const placesToShow = (data.results || []).slice(0, POPULAR_PLACES_MARKER_LIMIT);
-
-            if (popularPlacesPanelRequested && activeMap && typeof L !== 'undefined') {
-                placesToShow.forEach(place => {
-                    let placeLat, placeLon;
-                    if (place.lat && place.lon) {
-                        placeLat = place.lat;
-                        placeLon = place.lon;
-                    } else if (place.center) {
-                        placeLat = place.center.lat;
-                        placeLon = place.center.lon;
-                    } else {
-                        return;
-                    }
-
-                    const name = place.tags?.name || place.tags?.amenity || 'Popular Place';
-                    const amenity = place.tags?.amenity || place.tags?.shop || place.tags?.tourism || 'Unknown';
-
-                    // --- ADVANCED POPUP CONTENT ---
-                    let popupContent = `<div class="popup-card">
-                        <div class="popup-header">
-                            <strong class="popup-title">${name}</strong>
-                            <span class="popup-type">${amenity}</span>
-                        </div>`;
-
-                    if (place.revenue_data) {
-                        const r = place.revenue_data;
-                        const healthClass = r.business_health === 'Optimal' ? 'text-success' :
-                            (r.business_health === 'Overloaded' ? 'text-danger' : 'text-warning');
-
-                        const monthlyRev = new Intl.NumberFormat('en-IN', {
-                            style: 'currency', currency: 'INR', maximumFractionDigits: 0
-                        }).format(r.estimated_monthly_revenue);
-
-                        const dailyRev = new Intl.NumberFormat('en-IN', {
-                            style: 'currency', currency: 'INR', maximumFractionDigits: 0
-                        }).format(r.estimated_daily_revenue);
-
-                        popupContent += `
-                        <div class="popup-stats">
-                            <div class="stat-row main-stat">
-                                <span>Monthly Revenue</span>
-                                <span class="stat-value monitor-glow">${monthlyRev}</span>
-                            </div>
-                            <div class="stat-row">
-                                <span>Daily Avg</span>
-                                <span class="stat-value">${dailyRev}</span>
-                            </div>
-                            <div class="stat-row">
-                                <span>Health</span>
-                                <span class="stat-value ${healthClass}">${r.business_health}</span>
-                            </div>
-                             <div class="stat-row">
-                                <span>Potential Score</span>
-                                <div class="progress-mini">
-                                    <div class="progress-bar" style="width: ${r.potential_score}%"></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="popup-footer">
-                            <small>CQI: ${r.cqi_label || 'Standard'} | Risk: ${r.overload_risk || 0}%</small>
-                        </div></div>`;
-                    } else {
-                        popupContent += `</div>`;
-                    }
-
+        const places = data.results || [];
+        if (activeMap) {
+            clearPopularPlaceMarkers(activeMap);
+            if (popularPlacesPanelRequested && typeof L !== 'undefined') {
+                places.forEach(place => {
+                    const ll = placeLatLon(place);
+                    if (!ll) return;
                     try {
-                        const marker = L.marker([placeLat, placeLon], {
+                        const marker = L.marker(ll, {
+                            zIndexOffset: 500,
                             icon: L.icon({
                                 iconUrl: 'https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-blue.png',
                                 shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-                                iconSize: [25, 41],
-                                iconAnchor: [12, 41],
-                                popupAnchor: [1, -34],
-                                shadowSize: [41, 41]
+                                iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
                             })
-                        }).addTo(activeMap)
-                            .bindPopup(popupContent, { minWidth: 260, className: 'premium-popup' });
-
-                        marker.on('click', () => {
-                            if (typeof saveSelectedLocation === 'function') {
-                                saveSelectedLocation(placeLat, placeLon, name, amenity || '');
-                            }
-                        });
-
+                        }).addTo(activeMap).bindPopup(popularPlacePopup(place), { minWidth: 260, className: 'premium-popup' });
+                        marker.on('click', () => zoomToPin(ll[0], ll[1], 16));
                         popularPlacesMarkers.push(marker);
                     } catch (e) {
                         console.warn('Marker create error:', e);
                     }
                 });
-
-                if (radiusCircle) {
-                    try { activeMap.removeLayer(radiusCircle); } catch (e) {}
-                }
-                try {
-                    radiusCircle = L.circle([lat, lon], {
-                        radius: 5000, color: '#2563eb', fillColor: '#3b82f6', fillOpacity: 0.08, weight: 2, dashArray: '8, 8'
-                    }).addTo(activeMap);
-                    radiusCircle.bindTooltip('Analysis radius: 5 km', { permanent: false, direction: 'top' });
-                } catch (e) {
-                    console.warn('Radius circle error:', e);
-                }
             }
-
-            // Update Total Area Revenue & Active Sensors in Footer
-            const revenueDisplay = document.getElementById('revenue-prediction-display');
-            const revenueVal = document.getElementById('revenue-value');
-            const scoreVal = document.getElementById('crowd-score-value');
-
-            if (revenueDisplay) {
-                revenueDisplay.classList.remove('d-none');
-                const totalRev = data.total_area_revenue || (data.crowd_intensity && data.crowd_intensity.estimated_revenue) || 0;
-                if (revenueVal) {
-                    revenueVal.textContent = '₹' + Number(totalRev).toLocaleString('en-IN');
-                }
-                const revLabel = revenueDisplay.querySelector('.revenue-label');
-                if (revLabel) {
-                    revLabel.textContent = 'Est. Monthly Revenue';
-                    revLabel.classList.add('pulse-text');
-                }
-
-                if (scoreVal) {
-                    const sensorCount = data.active_sensors_count || (data.results ? data.results.length : 0);
-                    scoreVal.textContent = String(sensorCount);
-                    const scoreLabel = scoreVal.parentElement?.querySelector('.revenue-label');
-                    if (scoreLabel) scoreLabel.textContent = 'Active Sensors';
-                    if (sensorCount >= 20) scoreVal.style.color = '#4ade80';
-                }
-            }
-
-            lastPopularPlacesResult = { places: data.results || [], lat, lon, recommendations: data.recommendations || [] };
-            if (typeof renderPopularPlacesFlashcards === 'function') {
-                renderPopularPlacesFlashcards(data.results || []);
-            }
-            if (typeof renderBusinessRecommendationCards === 'function') {
-                const recsToRender = (data.recommendations && data.recommendations.length) ? data.recommendations : (data.results || []);
-                renderBusinessRecommendationCards(recsToRender, lat, lon);
-            }
-
-            // Pre-pass crowd intensity to avoid redundant 2nd HTTP round-trip to /analyze-crowd-intensity/
-            if (typeof updateCrowdIntensityDropdown === 'function') {
-                await updateCrowdIntensityDropdown(lat, lon, data.crowd_intensity);
-            }
-
-            if (statusEl) statusEl.textContent = `Analysis Ready (${data.is_live ? 'Verified live OSM' : 'Signal-based estimate'}, 5 km radius)`;
-
-            if (showAlert) {
-                showHeatmapToast(`5 km Scan Complete: ${data.active_sensors_count || data.results.length} monitored sensors active.`, 'success');
-            }
-            return { success: true, count: data.results.length };
-        } else {
-            const errMsg = data.error || data.message || 'Unable to fetch popular places.';
-            if (showAlert) showHeatmapToast('Scan Failed: ' + errMsg, 'error');
-            return { success: false, error: errMsg };
         }
-    } catch (error) {
-        console.error('Error:', error);
-        const errMsg = error.name === 'AbortError' ? 'Scan timed out after 25s. Server was slow.' : (error.message || 'Network or server error. Please try again.').replace(/^Error:\s*/i, '');
-        if (showAlert) showHeatmapToast('System Error: ' + errMsg, 'error');
-        return { success: false, error: errMsg };
+
+        renderAreaFooter(data);
+        lastPopularPlacesResult = { places, lat, lon, recommendations: data.recommendations || [] };
+        if (typeof renderPopularPlacesFlashcards === 'function') renderPopularPlacesFlashcards(places);
+        if (typeof renderBusinessRecommendationCards === 'function') {
+            renderBusinessRecommendationCards((data.recommendations && data.recommendations.length) ? data.recommendations : places, lat, lon);
+        }
+        // The crowd analysis came with this response: no second request.
+        if (typeof updateCrowdIntensityDropdown === 'function') {
+            await updateCrowdIntensityDropdown(lat, lon, data.crowd_intensity);
+        }
+        if (!isCurrent()) return { success: false, superseded: true };
+
+        // The finished analysis becomes the context Business Analytics reads (no recomputation).
+        saveAnalysisContext({ name, lat, lng: lon, radius: data.analysis_radius, analysis_id: data.analysis_id });
+
+        const source = data.stale ? `cached OpenStreetMap data from ${new Date(data.fetched_at).toLocaleString()}` : 'live OpenStreetMap data';
+        setMapStatus(`Analysis ready: ${places.length} popular places, ${Number(data.pois_analysed || 0).toLocaleString('en-IN')} mapped places in 5 km (${source}).`,
+            { kind: data.stale ? 'warning' : 'ok' });
+        if (showAlert) showHeatmapToast(`5 km scan complete: ${places.length} popular places found.`, 'success');
+        return { success: true, count: places.length };
     } finally {
-        clearTimeout(timeoutId);
-        _isPopularPlacesScanning = false;
-        triggerButtons.forEach(btn => {
-            btn.disabled = false;
-            if (btn.dataset.originalHtml) {
-                btn.innerHTML = btn.dataset.originalHtml;
-            }
-        });
+        if (isCurrent()) {
+            analysisAbort = null;
+            triggerButtons.forEach(btn => {
+                btn.disabled = false;
+                if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+            });
+        }
     }
 }
 
@@ -1707,7 +1866,7 @@ function buildCrowdProfileForPlace(place) {
     // Simple time-of-day multipliers (morning/afternoon/evening/night)
     const slots = [
         { id: 'morning', label: 'Morning', timeRange: '6am - 10am', multiplier: 0.55 },
-        { id: 'midday', label: 'Midâ€‘day', timeRange: '10am - 4pm', multiplier: 0.85 },
+        { id: 'midday', label: 'Mid‑day', timeRange: '10am - 4pm', multiplier: 0.85 },
         { id: 'evening', label: 'Evening', timeRange: '4pm - 8pm', multiplier: 1.1 },
         { id: 'night', label: 'Night', timeRange: '8pm - 11pm', multiplier: 0.65 }
     ];
@@ -1727,7 +1886,7 @@ function buildCrowdProfileForPlace(place) {
 
     // Best time: first slot where crowd is below medium threshold (i.e. "low")
     let best = enrichedSlots.find(s => s.crowd === 'low') || enrichedSlots[0];
-    const bestTimeLabel = `${best.label} (${best.timeRange}) â€“ best time (crowd below medium)`;
+    const bestTimeLabel = `${best.label} (${best.timeRange}) – best time (crowd below medium)`;
 
     return {
         bestTimeLabel,
@@ -2040,104 +2199,112 @@ function renderPopularPlacesTable(places, lat, lon) {
  * Render dynamic "Top Business Recommendations" cards based on popular places.
  */
 function createOpportunityCard(rec, lat, lon) {
-    const rank = rec.rank || 1;
-    const name = rec.name || 'Business Opportunity';
-    const locality = rec.locality || 'Selected Area';
-    const category = rec.category || 'retail';
-    const badge = rec.badge || 'High Growth Opportunity';
-    const icon = rec.icon || 'fas fa-store';
-    const targetLat = rec.target_lat || lat;
-    const targetLon = rec.target_lon || lon;
-    const rev = rec.starting_monthly_revenue ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(rec.starting_monthly_revenue) : '₹50,000';
-    const costs = rec.estimated_monthly_costs ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(rec.estimated_monthly_costs) : '₹28,000';
-    const profit = rec.estimated_monthly_profit ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(rec.estimated_monthly_profit) : '₹22,000';
-    const demand = rec.expected_demand || 'High';
-    const competition = rec.competition_level || 'Moderate';
-    const demandBadgeClass = demand.includes('Very') ? 'bg-success' : (demand === 'High' ? 'bg-primary' : 'bg-info');
-    const compBadgeClass = competition === 'Low' ? 'bg-success' : (competition === 'Moderate' ? 'bg-warning text-dark' : 'bg-danger');
-
-    const reasonsList = (rec.reasons || []).slice(0, 3).map(r => `<li class="small mb-1 text-light"><i class="fas fa-check text-success me-2"></i>${r}</li>`).join('');
-    const escapedName = String(name).replace(/'/g, "\\'");
+    const money = (v) => (v || v === 0) ? formatINRCurrency(v) : '—';
+    const targetLat = Number(rec.target_lat ?? lat);
+    const targetLon = Number(rec.target_lon ?? lon);
+    const competition = rec.competition_level || '—';
+    const compBadge = competition === 'Low' ? 'bg-success' : (competition === 'Moderate' ? 'bg-warning text-dark' : 'bg-danger');
+    const crowd = rec.crowd_level ? rec.crowd_level.charAt(0).toUpperCase() + rec.crowd_level.slice(1) : '—';
+    const crowdBadge = rec.crowd_level === 'high' ? 'bg-danger' : (rec.crowd_level === 'medium' ? 'bg-warning text-dark' : 'bg-success');
+    const breakEven = rec.break_even_months ? `${rec.break_even_months} months` : '—';
+    const reasons = (rec.reasons || []).slice(0, 4).map(r => `<li class="small mb-1 text-light"><i class="fas fa-check text-success me-2"></i>${escapeHtml(r)}</li>`).join('');
+    const payload = escapeHtml(JSON.stringify({ lat: targetLat, lng: targetLon, name: rec.locality || 'Selected location',
+                                                title: `${rec.name} – best spot near ${rec.locality || 'here'}`, category: rec.category || '' }));
 
     return `
         <div class="col-12 col-md-6 col-xl-4 mb-3">
             <div class="business-opportunity-card card bg-dark text-light border-secondary h-100 shadow-sm" style="border-radius: 12px; overflow: hidden; background: linear-gradient(145deg, #182234 0%, #0f172a 100%);">
                 <div class="card-header border-secondary d-flex justify-content-between align-items-center py-2 px-3" style="background: rgba(255,255,255,0.03);">
                     <div class="d-flex align-items-center gap-2">
-                        <span class="badge bg-primary rounded-pill">#${rank}</span>
-                        <i class="${icon} text-warning fs-5"></i>
-                        <strong class="text-truncate" style="max-width: 200px;">${name}</strong>
+                        <span class="badge bg-primary rounded-pill">#${Number(rec.rank) || ''}</span>
+                        <i class="${escapeHtml(rec.icon || 'fas fa-store')} text-warning fs-5"></i>
+                        <strong class="text-truncate" style="max-width: 200px;">${escapeHtml(rec.name)}</strong>
                     </div>
-                    <span class="badge bg-info-subtle text-info border border-info">${badge}</span>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-info-subtle text-info border border-info">${escapeHtml(rec.badge || '')}</span>
+                        ${window.Favorites ? window.Favorites.heartHtml({ ...window.Favorites.locationPayload({
+                            lat: targetLat, lng: targetLon, name: `${rec.name} – ${rec.locality || 'selected area'}`, category: rec.category || '' }),
+                            potential_score: rec.potential_score }) : ''}
+                    </div>
                 </div>
                 <div class="card-body p-3 d-flex flex-column justify-content-between">
                     <div>
                         <div class="d-flex align-items-center text-muted small mb-2">
                             <i class="fas fa-map-marker-alt text-danger me-1"></i>
-                            <span>${locality} • Coord: ${Number(targetLat).toFixed(4)}, ${Number(targetLon).toFixed(4)}</span>
+                            <span>Best spot near ${escapeHtml(rec.locality || 'the selected area')} · ${targetLat.toFixed(4)}, ${targetLon.toFixed(4)}</span>
                         </div>
-
                         <div class="row g-2 text-center my-2 p-2 rounded" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05);">
                             <div class="col-4">
-                                <div class="text-muted" style="font-size: 0.7rem;">Starting Revenue</div>
-                                <strong class="text-success" style="font-size: 0.95rem;">${rev}</strong>
+                                <div class="text-muted" style="font-size: 0.7rem;">Est. revenue</div>
+                                <strong class="text-success" style="font-size: 0.95rem;">${money(rec.starting_monthly_revenue)}</strong>
                                 <div class="text-muted" style="font-size: 0.65rem;">/month</div>
                             </div>
                             <div class="col-4 border-start border-end border-secondary">
-                                <div class="text-muted" style="font-size: 0.7rem;">Est. Costs</div>
-                                <span class="text-warning" style="font-size: 0.9rem;">${costs}</span>
-                                <div class="text-muted" style="font-size: 0.65rem;">OPEX</div>
+                                <div class="text-muted" style="font-size: 0.7rem;">Est. profit</div>
+                                <span class="text-info" style="font-size: 0.9rem;">${money(rec.estimated_monthly_profit)}</span>
+                                <div class="text-muted" style="font-size: 0.65rem;">/month</div>
                             </div>
                             <div class="col-4">
-                                <div class="text-muted" style="font-size: 0.7rem;">Net Profit</div>
-                                <strong class="text-info" style="font-size: 0.95rem;">${profit}</strong>
-                                <div class="text-muted" style="font-size: 0.65rem;">est. margin</div>
+                                <div class="text-muted" style="font-size: 0.7rem;">Break-even</div>
+                                <strong class="text-warning" style="font-size: 0.95rem;">${breakEven}</strong>
+                                <div class="text-muted" style="font-size: 0.65rem;">setup ${money(rec.setup_cost_estimate)}</div>
                             </div>
                         </div>
-
-                        <div class="d-flex justify-content-between align-items-center my-2 px-1">
-                            <span class="small text-muted">Demand: <span class="badge ${demandBadgeClass} ms-1">${demand}</span></span>
-                            <span class="small text-muted">Competition: <span class="badge ${compBadgeClass} ms-1">${competition}</span></span>
+                        <div class="d-flex justify-content-between align-items-center my-2 px-1 flex-wrap gap-1">
+                            <span class="small text-muted">Crowd: <span class="badge ${crowdBadge} ms-1">${crowd}</span></span>
+                            <span class="small text-muted">Competition: <span class="badge ${compBadge} ms-1">${escapeHtml(competition)}</span>
+                                <span class="ms-1">(${Number(rec.competitors_1km) || 0} ≤1 km)</span></span>
                         </div>
-
-                        <ul class="list-unstyled my-2 ps-1">
-                            ${reasonsList}
-                        </ul>
+                        <ul class="list-unstyled my-2 ps-1">${reasons}</ul>
+                        ${window.SynergyIntel ? window.SynergyIntel.cardBlock(rec.synergy) : ''}
                     </div>
-
                     <div>
-                        <div class="d-flex justify-content-between align-items-center pt-2 mt-2 border-top border-secondary text-muted" style="font-size: 0.72rem;">
-                            <span><i class="fas fa-database me-1"></i>${rec.data_source || 'OSM Gravity Model'}</span>
-                            <span class="badge bg-secondary-subtle text-light">${rec.confidence || 'Signal-based'}</span>
+                        <div class="pt-2 mt-2 border-top border-secondary text-muted" style="font-size: 0.7rem;" title="${escapeHtml(rec.assumptions || '')}">
+                            <i class="fas fa-info-circle me-1"></i>Estimates · ${escapeHtml(rec.confidence || '')}${rec.uses_default_assumptions ? ' · generic assumptions' : ''}
                         </div>
-
-                        <button type="button" class="btn btn-outline-primary btn-sm w-100 mt-2 d-flex align-items-center justify-content-center gap-2" onclick="navigateToMapOpportunity(${targetLat}, ${targetLon}, '${escapedName}', '${category}', ${rec.starting_monthly_revenue || 0})">
-                            <i class="fas fa-map-marked-alt text-warning"></i>
-                            <span>View on Live Map (5 km)</span>
+                        <button type="button" class="btn btn-outline-primary btn-sm w-100 mt-2 d-flex align-items-center justify-content-center gap-2 rec-view-map" data-loc="${payload}">
+                            <i class="fas fa-map-marked-alt text-warning"></i><span>View on Live Map (5 km)</span>
                         </button>
                     </div>
                 </div>
             </div>
-        </div>
-    `;
+        </div>`;
 }
 
-function navigateToMapOpportunity(lat, lon, name, category, revenue) {
-    if (typeof saveSelectedLocation === 'function') {
-        saveSelectedLocation(lat, lon, name, category);
+/** Switch to the map view (same page when possible) and fly to the location with its crowd analysis. */
+async function navigateToMapOpportunity(lat, lon, name, category, title) {
+    lat = Number(lat); lon = Number(lon);
+    setAnalysisLocation(lat, lon, name, { category });
+    const showMapBtn = document.getElementById('btn-show-map');
+    if (!isDashboardPage() || !showMapBtn) {
+        window.location.href = `/dashboard/?auto_map=true&lat=${lat}&lon=${lon}&name=${encodeURIComponent(name || '')}`;
+        return;
     }
-    window.location.href = `/dashboard/?auto_map=true&lat=${lat}&lon=${lon}&name=${encodeURIComponent(name)}&rev=${revenue || 0}`;
+    document.getElementById('dashboard-analytics-section')?.classList.add('d-none');
+    const params = new URLSearchParams(window.location.search);
+    params.delete('ai'); params.set('auto_map', 'true');
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    showMapBtn.click();
+    await new Promise(r => setTimeout(r, 350));   // map container becomes visible / initialises
+    popularPlacesPanelRequested = true;
+    await focusMapOnOpportunityOrLocation(lat, lon, title || name, null, { locationName: name });
 }
 window.navigateToMapOpportunity = navigateToMapOpportunity;
 window.createOpportunityCard = createOpportunityCard;
 
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.rec-view-map');
+    if (!btn) return;
+    const loc = JSON.parse(btn.dataset.loc);
+    navigateToMapOpportunity(loc.lat, loc.lng, loc.name, loc.category, loc.title);
+});
+
 /**
  * Render dynamic "Top Business Recommendations" cards based on opportunities or popular places.
  */
-function renderBusinessRecommendationCards(places, lat, lon) {
+function renderBusinessRecommendationCards(places, lat, lon, comparison = null) {
     const row = document.getElementById('business-recommendations-row');
     const dashContainer = document.getElementById('dashboard-recommendations-cards-container');
-    const section = document.getElementById('business-recommendations-section') || document.getElementById('business-intelligence-panel');
 
     if (!places || !places.length) {
         if (row) row.innerHTML = '<div class="text-center text-muted p-4 col-12">No recommendations available for this location.</div>';
@@ -2145,14 +2312,13 @@ function renderBusinessRecommendationCards(places, lat, lon) {
         return;
     }
 
-    if (section) section.classList.remove('d-none');
-    const analyticsSection = document.getElementById('dashboard-analytics-section');
-    if (analyticsSection) analyticsSection.classList.remove('d-none');
-
+    // Only fills the cards: which section is visible is decided by the view functions
+    // (un-hiding here made the recommendations appear under the map after every scan).
     const isOpportunityList = places[0] && (places[0].starting_monthly_revenue !== undefined || places[0].target_lat !== undefined);
 
     let html = '';
     if (isOpportunityList) {
+        if (comparison && window.SynergyIntel) html += window.SynergyIntel.comparisonStrip(comparison);
         places.slice(0, 5).forEach((rec, idx) => {
             html += createOpportunityCard(rec, lat, lon);
         });
@@ -2176,30 +2342,14 @@ const DEFAULT_MAP_CENTER = { lat: 12.9716, lon: 77.5946 };
 
 // Find Popular Places Button
 safeOn('popular-places-btn', 'click', async function () {
-    let lat, lon;
-    const latInput = document.getElementById('id_latitude');
-    const lonInput = document.getElementById('id_longitude');
-
-    if (latInput && lonInput && latInput.value && lonInput.value) {
-        lat = parseFloat(latInput.value);
-        lon = parseFloat(lonInput.value);
+    // Scan the place the user chose; never silently fall back to a default city.
+    const loc = getCurrentAnalysisLocation();
+    if (!loc) {
+        showHeatmapToast('Choose a location first: search, click the map or use "My Location".', 'info');
+        return;
     }
-    if ((!lat || !lon) && userMarker) {
-        const ll = userMarker.getLatLng();
-        lat = ll.lat;
-        lon = ll.lng;
-    }
-    if (!lat || !lon) {
-        lat = DEFAULT_MAP_CENTER.lat;
-        lon = DEFAULT_MAP_CENTER.lon;
-        if (latInput && lonInput) {
-            latInput.value = lat;
-            lonInput.value = lon;
-        }
-        if (map) map.setView([lat, lon], 12);
-        notifyChatFromMap('Using Bangalore as center. Search for a place or use "My Location" to change the area.');
-    }
-    await findPopularPlaces(lat, lon, true);
+    popularPlacesPanelRequested = true;
+    await findPopularPlaces(loc.lat, loc.lng, true, { name: loc.name, view: 'area' });
 });
 
 // Toggles and WebSocket handled globally
@@ -2326,9 +2476,11 @@ const SITE_FEATURES_KNOWLEDGE = [
             'recommender', 'charts', 'graphs', 'market demand', 'competition',
             'competition index', 'footfall metrics', 'insights', 'category breakdown',
             'business recommendations', 'best locations', 'ai analysis', 'market analysis',
-            'open analytics', 'go to analytics', 'show analytics', 'take me to analytics'
+            'open analytics', 'go to analytics', 'show analytics', 'take me to analytics',
+            'revenue graph', '3d graph', '3d chart', 'revenue chart', 'projected revenue', 'live revenue',
+            'daily revenue', 'weekly revenue', 'monthly revenue', 'show business analytics'
         ],
-        description: '📊 **Business Analytics & AI Recommendations**\n\nOur AI-driven analytics suite provides deep market intelligence:\n• **Market Demand Index**: Sector-specific consumer activity.\n• **Competition Density**: Measures local competition to reveal high-potential market gaps.\n• **Category Breakdown**: Analyzes viability across cafes, pharmacies, gyms, and retail.\n• **AI Suitability Ranking**: AI algorithms score top candidate locations based on ROI potential.',
+        description: '📊 **Business Analytics**\n\nFor the area you last analysed with **Popular Locations** on the map:\n• **3D projected-revenue graph** within the 5 km radius, by business category, with **Live | Daily | Weekly | Monthly** views (drag to rotate, pinch/scroll to zoom, or view as a table).\n• **KPIs**: total projected revenue, peak period, top category and growth.\n• **Top 5 Business Recommendations** with revenue, break-even and competition.\n\nThe figures are a **model projection** from OpenStreetMap places and the platform\'s revenue engine, not real sales data. Run Popular Locations on the map first; the graph then opens for that area.',
         actionLabel: '📊 Go to Business Analytics',
         directCommandRegex: /^(?:(?:go\s+to|open|show|launch|take\s+me\s+to|view)\s+)?(?:the\s+)?(?:business\s+)?(?:analytics|recommendations|recommender|charts|ai\s+recommender)(?:\s+(?:page|section|feature))?$/i
     },
@@ -2452,7 +2604,7 @@ const SITE_FEATURES_KNOWLEDGE = [
             'profile', 'account', 'settings', 'user', 'sign in', 'login', 'logout',
             'supabase', 'auth', 'my account', 'account settings'
         ],
-        description: '👤 **Account & Profile**\n\nManage your user profile, Supabase Cloud authentication, and synced preferences.\n• Access protected reports and saved custom analyses across sessions.',
+        description: '👤 **Account & Profile**\n\nManage your user profile, secure sign-in and synced preferences.\n• Access protected reports and saved custom analyses across sessions.',
         actionLabel: '👤 Open Profile',
         directCommandRegex: /^(?:(?:go\s+to|open|show|view)\s+)?(?:the\s+)?(?:profile|account|account\s+settings)$/i
     },
@@ -2553,15 +2705,9 @@ function navigateToFeature(featureKey) {
         case 'analytics':
         case 'ai-recommender':
             if (isDashboard) {
-                const aiBtn = document.getElementById('btn-show-ai-recommender');
-                const sidebarAiLink = document.getElementById('sidebar-ai-link');
-                if (typeof openDashboardDataOnlyMode === 'function') {
-                    openDashboardDataOnlyMode('ai');
-                } else if (sidebarAiLink) {
-                    sidebarAiLink.click();
-                } else if (aiBtn) {
-                    aiBtn.click();
-                }
+                // Same login gate as the sidebar link.
+                if (window.requireSupabaseAuth) window.requireSupabaseAuth('Business Analytics', () => openDashboardDataOnlyMode('ai'));
+                else openDashboardDataOnlyMode('ai');
             } else {
                 window.location.href = '/dashboard/?ai=true';
             }
@@ -2702,8 +2848,11 @@ function handleStructuredChatAction(action) {
         const formModal = document.getElementById('form-modal');
         if (formModal) formModal.style.display = 'block';
     } else if (intent === 'find_popular_places') {
-        if (typeof findPopularPlaces === 'function') {
-            findPopularPlaces();
+        const loc = getCurrentAnalysisLocation();
+        if (loc) {
+            findPopularPlaces(loc.lat, loc.lng, true, { name: loc.name, view: 'area' });
+        } else {
+            notifyChatFromMap('Choose a location first: search for a place, click the map or use "Find My Location".');
         }
     } else if (intent === 'generate_report') {
         if (window.ReportGenerator) window.ReportGenerator.start({ source: 'chat' });
@@ -2762,12 +2911,12 @@ function placeFeasibilityMarker(lat, lon, label) {
         });
         businessRecommendationMarkers = [];
     }
-    const color = '#8B4513';
+    const color = '#ffffff';   // black/white design system (was brown)
     if (typeof L !== 'undefined' && L.circleMarker) {
         try {
             const marker = L.circleMarker([lat, lon], {
                 radius: 14,
-                color,
+                color: '#000000',
                 fillColor: color,
                 fillOpacity: 0.9,
                 weight: 3
@@ -2856,15 +3005,11 @@ async function runFeasibilityFlow(placeText, businessType) {
         if (lonInput) lonInput.value = lon;
         if (typeof updateAccuracyMeter === 'function') updateAccuracyMeter(85);
         if (typeof showLocationError === 'function') showLocationError('');
-        if (typeof saveSelectedLocation === 'function') {
-            saveSelectedLocation(lat, lon, locationLabel, businessType || '');
-        }
+        // The business type is chat text, not a category: it is not stored with the location.
+        setAnalysisLocation(lat, lon, locationLabel);
 
-        // 4.2 Take popular places radius in 2km
-        await findPopularPlaces(lat, lon, false);
-        if (typeof updateCrowdIntensityDropdown === 'function') {
-            await updateCrowdIntensityDropdown(lat, lon);
-        }
+        // 4.2 Popular places + crowd heatmap for the 5 km analysis radius
+        await findPopularPlaces(lat, lon, false, { name: locationLabel });
         // 4.3 & 4.4 Check feasibility and place brown marker or show not feasible
         const feasData = await getFeasibilityWithCache(lat, lon, businessType || '');
         if (feasData.success) {
@@ -3500,7 +3645,6 @@ if (formLocationInput && formLocationSuggestions) {
                     }
 
                     await findPopularPlaces(lat, lon, false);
-                    await updateCrowdIntensityDropdown(lat, lon);
                     notifyChatFromMap('Business location in form set to: ' + result.display_name);
                 });
                 formLocationSuggestions.appendChild(item);
@@ -3546,20 +3690,12 @@ async function selectSearchResult(lat, lon, name = 'Selected Location', business
         return;
     }
 
-    // Capture starting point (current user location OR map center)
-    let startLatLng = map.getCenter();
-    if (userMarker) {
-        startLatLng = userMarker.getLatLng();
-    }
+    // Route only from a nearby previous marker (a "how do I get there" route). Routing from
+    // wherever the map happened to be (another city) re-fitted the map away from the analysis.
+    const startLatLng = userMarker ? userMarker.getLatLng() : null;
 
-    // Update form coordinates
-    const latField = document.getElementById('id_latitude');
-    const lonField = document.getElementById('id_longitude');
-    if (latField) latField.value = flat;
-    if (lonField) lonField.value = flon;
+    setAnalysisLocation(flat, flon, name || 'Selected Location');
 
-    // Remove previous user marker (target)
-    // Actually, we'll keep the marker but update it with the tracking name
     if (userMarker) {
         map.removeLayer(userMarker);
     }
@@ -3573,32 +3709,22 @@ async function selectSearchResult(lat, lon, name = 'Selected Location', business
             iconAnchor: [12, 41],
             popupAnchor: [1, -34],
             shadowSize: [41, 41]
-        })
+        }),
+        zIndexOffset: 1000
     }).addTo(map)
-        .bindPopup(`<b>Tracking: ${name}</b><br>Coordinates: ${flat.toFixed(4)}, ${flon.toFixed(4)}<br><small class="text-primary"><i class="fas fa-radar"></i> 5 km Radius Active</small>`).openPopup();
+        .bindPopup(`<b>${escapeHtml(name)}</b><br>Coordinates: ${flat.toFixed(4)}, ${flon.toFixed(4)}<br><small class="text-primary"><i class="fas fa-radar"></i> 5 km analysis radius</small>`).openPopup();
 
-    // Draw 5 km analysis circle
-    if (analysisRadiusCircle) {
-        try { map.removeLayer(analysisRadiusCircle); } catch (_e) {}
+    drawAnalysisRadius(flat, flon, { fit: false });
+    zoomToPin(flat, flon);
+    if (startLatLng && distanceMeters(startLatLng.lat, startLatLng.lng, flat, flon) <= 25000) {
+        calculateRoute(startLatLng.lat, startLatLng.lng, flat, flon, name);
+    } else if (routingControl) {
+        try { map.removeControl(routingControl); } catch (_e) {}
+        routingControl = null;
     }
-    analysisRadiusCircle = L.circle([flat, flon], {
-        radius: 5000,
-        color: '#2563eb',
-        fillColor: '#3b82f6',
-        fillOpacity: 0.12,
-        weight: 2,
-        dashArray: '6, 6'
-    }).addTo(map).bindTooltip('5 km Analysis Zone', { permanent: false, direction: 'top' });
 
-    map.setView([flat, flon], 14);
-
-    // CALCULATE ROUTE (Dijkstra-based via Routing Machine)
-    calculateRoute(startLatLng.lat, startLatLng.lng, flat, flon, name);
-
-    // Update accuracy
     updateAccuracyMeter(90);
-    saveSelectedLocation(flat, flon, name || 'Selected Location', businessType || '');
-    await findPopularPlaces(flat, flon, false);
+    await findPopularPlaces(flat, flon, false, { name: name || 'Selected Location' });
     await analyzeLocationIntelligence(flat, flon, name || 'Selected Location');
 }
 
@@ -3629,7 +3755,7 @@ function calculateRoute(startLat, startLon, endLat, endLon, destinationName = 'D
             createMarker: function () { return null; }, // We use our own markers
             addWaypoints: false,
             draggableWaypoints: false,
-            fitSelectedRoutes: true,
+            fitSelectedRoutes: false,  // keep the map on the 5 km analysis circle
             showAlternatives: false,
             // Custom instructions provider
             router: L.Routing.osrmv1({
@@ -3643,13 +3769,13 @@ function calculateRoute(startLat, startLon, endLat, endLon, destinationName = 'D
             const timeMins = Math.round(summary.totalTime / 60);
             const distKm = (summary.totalDistance / 1000).toFixed(2);
 
-            const arrivalText = `ðŸš— Travel Time: ~${timeMins} min (${distKm} km)`;
+            const arrivalText = `Travel time: ~${timeMins} min (${distKm} km)`;
 
             if (userMarker) {
-                userMarker.getPopup().setContent(`<b>Tracking: ${destinationName}</b><br>${arrivalText}`).openOn(map);
+                userMarker.getPopup().setContent(`<b>${escapeHtml(destinationName)}</b><br>${arrivalText}`);
             }
 
-            notifyChatFromMap(`ðŸ›£ï¸ Route calculated to ${destinationName}. ${arrivalText}`);
+            notifyChatFromMap(`Route calculated to ${destinationName}. ${arrivalText}`);
         }).addTo(map);
 
     } catch (err) {
@@ -3689,13 +3815,13 @@ function highlightBusinessAreasForIntensity(level) {
         return;
     }
 
-    const color = '#8B4513'; // brown
+    const color = '#ffffff';   // black/white design system (was brown)
 
     areas.slice(0, 10).forEach(area => {
         if (typeof area.latitude !== 'number' || typeof area.longitude !== 'number') return;
         const marker = L.circleMarker([area.latitude, area.longitude], {
             radius: 10,
-            color,
+            color: '#000000',
             fillColor: color,
             fillOpacity: 0.9,
             weight: 3
@@ -3705,7 +3831,7 @@ function highlightBusinessAreasForIntensity(level) {
     });
 
     addChatMessage(
-        `Iâ€™ve highlighted recommended zones for ${key} crowd with brown markers on the map. Zoom in to explore specific spots.`,
+        `I’ve highlighted recommended zones for ${key} crowd with brown markers on the map. Zoom in to explore specific spots.`,
         'bot'
     );
 }
@@ -3724,7 +3850,7 @@ function handleCrowdIntensityReply(message) {
 
     const locText = aiBusinessFlowLocationDesc || 'this area';
     addChatMessage(
-        `Got it â€” you want to attract a ${level} crowd around ${locText}. Iâ€™ll highlight the best zones on the map.`,
+        `Got it — you want to attract a ${level} crowd around ${locText}. I’ll highlight the best zones on the map.`,
         'bot'
     );
     highlightBusinessAreasForIntensity(level);
@@ -3735,7 +3861,7 @@ function handleCrowdIntensityReply(message) {
 async function runBusinessPlanningFlow(areaText) {
     try {
         addChatMessage(
-            `Looking up ${areaText} in Bangalore and analysing nearby places for your businessâ€¦`,
+            `Looking up ${areaText} in Bangalore and analysing nearby places for your business…`,
             'bot'
         );
 
@@ -3785,7 +3911,6 @@ async function runBusinessPlanningFlow(areaText) {
 
         // Step 2: discover popular places and run intensity analysis
         await findPopularPlaces(lat, lon, false);
-        await updateCrowdIntensityDropdown(lat, lon);
 
         aiBusinessFlowLocationDesc = first.display_name || areaText;
         aiBusinessFlowAwaitingIntensity = true;
@@ -3817,7 +3942,7 @@ function initBusinessTypeElements() {
     const suggestionsBox = document.getElementById('business-type-suggestions');
 
     if (searchInput && suggestionsBox) {
-        // Sync visible input â†’ hidden field on every keystroke
+        // Sync visible input → hidden field on every keystroke
         searchInput.addEventListener('input', function () {
             const val = this.value.trim();
             if (businessTypeInput) businessTypeInput.value = val;
@@ -3933,7 +4058,7 @@ function updateBusinessTypeOptionsFromPrediction(prediction, businessByIntensity
     if (!prediction) {
         if (searchInput) {
             searchInput.value = '';
-            searchInput.placeholder = 'ðŸ” Search a location first to load types...';
+            searchInput.placeholder = 'Search a location first to load types...';
             searchInput.disabled = true;
         }
         if (suggestionsBox) suggestionsBox.style.display = 'none';
@@ -4006,7 +4131,7 @@ function updateBusinessTypeOptionsFromPrediction(prediction, businessByIntensity
     const hint = document.getElementById('form-flow-hint');
     if (hint && totalAdded > 0) {
         hint.textContent = `${totalAdded} business types loaded - ${cfg.label || dominant} area. Start typing to search.`;
-        hint.style.color = dominant === 'high' ? '#ff6b6b' : dominant === 'medium' ? '#ffd93d' : '#6bcb77';
+        hint.style.color = '';
     }
 }
 
@@ -4029,9 +4154,9 @@ async function updateBuildingOutlines(lat, lon) {
     clearBuildingOutlines();
 
     const query = `
-        [out:json][timeout:25];
+        [out:json][timeout:10][maxsize:16777216];
         (
-          way["building"](around:1500,${lat},${lon});
+          way["building"](around:400,${lat},${lon});
         );
         (._;>;);
         out body;
@@ -4041,10 +4166,16 @@ async function updateBuildingOutlines(lat, lon) {
         const body = new URLSearchParams();
         body.append('data', query);
 
+        // Decorative only: bounded and abortable, and never awaited by the crowd analysis
+        // (awaiting it used to keep Popular Locations "Scanning…" for minutes).
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
         const res = await fetch('https://overpass-api.de/api/interpreter', {
             method: 'POST',
-            body
-        });
+            body,
+            signal: controller.signal
+        }).finally(() => clearTimeout(timer));
+        if (!res.ok) return;
 
         const data = await res.json();
         const elements = data.elements || [];
@@ -4085,396 +4216,188 @@ async function updateBuildingOutlines(lat, lon) {
 }
 
 // Update crowd intensity dropdown based on location
+const CROWD_LEVEL_STYLE = {
+    high: { color: '#b91c1c', fill: '#ef4444', radius: 750, label: 'High', note: 'Dense commercial activity – prime footfall' },
+    medium: { color: '#b45309', fill: '#f59e0b', radius: 600, label: 'Medium', note: 'Steady consumer activity, balanced competition' },
+    low: { color: '#15803d', fill: '#22c55e', radius: 450, label: 'Low', note: 'Quieter or developing area, lower competition' },
+};
+
+/** Sector areas of the analysis on the map for one level ('high' | 'medium' | 'low'). */
+function getCrowdAreas(level) {
+    return (lastCrowdIntensityData && lastCrowdIntensityData[level]) || [];
+}
+
+function clearCrowdLayers(activeMap) {
+    if (!activeMap) return;
+    crowdIntensityAreas.forEach(layer => { try { activeMap.removeLayer(layer); } catch (_e) {} });
+    heatmapLayers.forEach(layer => { try { activeMap.removeLayer(layer); } catch (_e) {} });
+    crowdIntensityAreas = [];
+    heatmapLayers = [];
+}
+
+function resetCrowdDropdown(dropdown) {
+    if (!dropdown) return;
+    dropdown.innerHTML = `
+        <option value="">Select crowd intensity</option>
+        <option value="high">High - High intensity crowded area</option>
+        <option value="medium">Moderate (medium crowd)</option>
+        <option value="low">Low (low crowd)</option>`;
+    dropdown.disabled = false;
+}
+
+function drawCrowdSectors(activeMap, lat, lon, data) {
+    ['high', 'medium', 'low'].forEach(level => {
+        const style = CROWD_LEVEL_STYLE[level];
+        (data[`${level}_intensity`] || []).forEach(area => {
+            if (distanceMeters(lat, lon, area.latitude, area.longitude) > ANALYSIS_RADIUS_M) return;
+            const density = area.density_per_km2 != null ? ` · ${area.density_per_km2}/km²` : '';
+            const popup = `
+                <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 180px;">
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                        <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${style.fill};"></span>
+                        <strong style="color:${style.color}; font-size:0.9rem;">${style.label} Activity Sector</strong>
+                    </div>
+                    <div style="font-size:0.8rem; color:#475569; margin-bottom:4px;"><strong>${Number(area.count)}</strong> mapped places${density}</div>
+                    <div style="font-size:0.75rem; color:#64748b;">${style.note}</div>
+                </div>`;
+            const circle = L.circle([area.latitude, area.longitude], {
+                radius: style.radius, color: style.color, fillColor: style.fill, fillOpacity: 0.3, weight: 2,
+            }).addTo(activeMap).bindPopup(popup);
+            heatmapLayers.push(circle);
+            const dot = L.circleMarker([area.latitude, area.longitude], {
+                radius: 6, color: style.color, fillColor: style.fill, fillOpacity: 1, weight: 2,
+            }).addTo(activeMap).bindPopup(popup);
+            crowdIntensityAreas.push(dot);
+        });
+    });
+}
+
+/**
+ * Crowd heatmap for (lat, lon). With `preloadedData` (from /find-popular-places/)
+ * nothing is fetched. Resolves to {success, lat, lon} for that exact location,
+ * or {success:false, error|superseded} – callers (e.g. the report) can wait on it.
+ */
 async function updateCrowdIntensityDropdown(lat, lon, preloadedData = null) {
+    lat = Number(lat);
+    lon = Number(lon);
     const dropdown = document.getElementById('id_crowd_intensity') || document.getElementById('dashboard-id_crowd_intensity');
+    const activeMap = activeMapInstance();
+    let data = preloadedData;
+    let seq = analysisSeq;
 
-    if (dropdown) {
-        dropdown.innerHTML = '<option value="">Analyzing crowd intensity...</option>';
-        dropdown.disabled = true;
+    if (!data) {
+        const h = window.lastHeatmapAnalysis;
+        if (h && sameSpot(h, { lat, lng: lon }) && Date.now() - h.ts < 120000) {
+            return { success: true, lat, lon, cached: true };
+        }
+        if (!currentAnalysisLocation || !sameSpot(currentAnalysisLocation, { lat, lng: lon })) {
+            setAnalysisLocation(lat, lon, 'Selected Location');
+        }
+        seq = ++analysisSeq;
+        if (dropdown) {
+            dropdown.innerHTML = '<option value="">Analyzing crowd intensity...</option>';
+            dropdown.disabled = true;
+        }
+        if (activeMap) drawAnalysisRadius(lat, lon, { fit: true });
+        setMapStatus('Analysing crowd intensity in 5 km…');
+        const result = await postAreaAnalysis('/analyze-crowd-intensity/', { latitude: lat, longitude: lon, name: currentAnalysisLocation?.name }, {
+            onProgress: (secs, pending) => {
+                if (seq === analysisSeq) setMapStatus(pending ? `OpenStreetMap is busy – still fetching (${secs}s)…` : `Analysing crowd intensity (${secs}s)…`);
+            },
+        });
+        if (seq !== analysisSeq) return { success: false, superseded: true };
+        data = result.ok ? result.data : { success: false, error: (result.data && result.data.error) || 'Unable to analyse crowd intensity.' };
     }
+    if (seq !== analysisSeq) return { success: false, superseded: true };
+    if (data && data.center && !sameSpot(data.center, { lat, lng: lon }, 5)) return { success: false, superseded: true };
 
-    // Helper: Haversine distance in meters (available throughout the function)
-    const _dist = (la1, lo1, la2, lo2) => {
-        const R = 6371000;
-        const dLat = (la2 - la1) * Math.PI / 180;
-        const dLon = (lo2 - lo1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) ** 2 + Math.cos(la1 * Math.PI / 180) * Math.cos(la2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
-
-    try {
-        let data = preloadedData;
-        if (!data) {
-            const response = await fetch('/analyze-crowd-intensity/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken')
-                },
-                body: JSON.stringify({ latitude: lat, longitude: lon })
-            });
-
-            data = await response.json();
-        }
-
-        if (data && (data.success || data.high_intensity || data.medium_intensity || data.low_intensity)) {
-            const activeMap = (typeof dashboardMap !== 'undefined' && dashboardMap) ? dashboardMap : (typeof map !== 'undefined' ? map : null);
-
-            // Clear previous crowd intensity markers and heatmap layers
-            if (activeMap) {
-                crowdIntensityAreas.forEach(marker => {
-                    try { activeMap.removeLayer(marker); } catch (_e) {}
-                });
-                crowdIntensityAreas = [];
-                heatmapLayers.forEach(layer => {
-                    try { activeMap.removeLayer(layer); } catch (_e) {}
-                });
-                heatmapLayers = [];
-
-                if (!popularPlacesPanelRequested && Array.isArray(popularPlacesMarkers) && popularPlacesMarkers.length > 0) {
-                    popularPlacesMarkers.forEach(marker => {
-                        try { activeMap.removeLayer(marker); } catch (e) {}
-                    });
-                    popularPlacesMarkers = [];
-                }
-            }
-
-            // Define prediction variable from response data
-            const pred = data.business_prediction;
-
-            // Process prediction data for multiple recommendations
-            let recommendations = [];
-            if (pred) {
-                if (typeof pred === 'string') {
-                    recommendations.push(pred);
-                } else {
-                    if (pred.primary) recommendations.push(pred.primary);
-                    if (pred.alternatives && Array.isArray(pred.alternatives)) {
-                        pred.alternatives.forEach(alt => {
-                            if (alt.business) recommendations.push(alt.business);
-                            else if (typeof alt === 'string') recommendations.push(alt);
-                        });
-                    }
-                    if (pred.choices && Array.isArray(pred.choices)) {
-                        pred.choices.forEach(c => recommendations.push(c));
-                    }
-                }
-            }
-
-            // Deduplicate and Normalize
-            recommendations = [...new Set(recommendations.map(r => {
-                let s = String(r).replace(/_/g, ' ').trim();
-                return s.charAt(0).toUpperCase() + s.slice(1);
-            }))].filter(Boolean);
-
-            // Ensure 2-5 recommendations
-            if (recommendations.length < 2) {
-                const fallbacks = ['Cafe', 'Retail Store', 'Co-working Space', 'Fast Food', 'Gym'];
-                for (let f of fallbacks) {
-                    if (recommendations.length >= 2) break;
-                    if (!recommendations.includes(f)) recommendations.push(f);
-                }
-            }
-            if (recommendations.length > 5) {
-                recommendations = recommendations.slice(0, 5);
-            }
-
-            const allowBusinessIntelUI = isBusinessRecommendationsMode();
-
-            // Render to "AI Recommended Business" Tab Content
-            const suggestionContent = document.getElementById('business-suggestion-content');
-            if (allowBusinessIntelUI && suggestionContent) {
-                let html = '<h5 class="mb-3 text-info"><i class="fas fa-robot me-2"></i>Top Strategic Recommendations</h5>';
-                html += '<div class="list-group">';
-                recommendations.forEach((rec, idx) => {
-                    html += `
-                        <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center bg-dark text-light border-secondary">
-                            <div>
-                                <span class="badge bg-primary rounded-pill me-2">${idx + 1}</span>
-                                <strong>${rec}</strong>
-                            </div>
-                            <span class="badge bg-success"><i class="fas fa-check"></i> 9${8 - idx}% Match</span>
-                        </div>`;
-                });
-                html += '</div>';
-                html += '<p class="mt-3 small text-muted">Analysis based on local crowd intensity and POI density.</p>';
-
-                suggestionContent.innerHTML = html;
-            }
-
-            // Update Form input options
-            updateBusinessTypeOptionsFromPrediction(pred, data.business_by_intensity);
-
-            // Show the card in the AI tab
-            const suggestionCard = document.getElementById('business-suggestion-card');
-            if (allowBusinessIntelUI && suggestionCard) {
-                suggestionCard.style.display = 'block';
-                suggestionCard.classList.remove('d-none');
-            }
-
-            let box = document.getElementById('mlPrediction');
-            if (box) box.style.display = 'none';
-
-            // Auto-switch to AI Tab to show results
-            const aiTabBtn = document.getElementById('ai-strategy-tab') || document.getElementById('dash-ai-tab');
-            if (allowBusinessIntelUI && aiTabBtn && typeof bootstrap !== 'undefined' && bootstrap.Tab) {
-                const tab = new bootstrap.Tab(aiTabBtn);
-                tab.show();
-
-                const intelPanel = document.getElementById('business-intelligence-panel');
-                if (intelPanel) intelPanel.classList.remove('d-none');
-            }
-
-            // Update dynamic mapping from backend dataset/ML if provided
-            if (data.business_by_intensity && typeof data.business_by_intensity === 'object') {
-                businessByIntensity = data.business_by_intensity || {};
-            }
-
-            // Re-render popular places table
-            if (allowBusinessIntelUI && lastPopularPlacesResult.places.length && lastPopularPlacesResult.lat === lat && lastPopularPlacesResult.lon === lon) {
-                renderPopularPlacesTable(lastPopularPlacesResult.places, lat, lon);
-                renderBusinessRecommendationCards(lastPopularPlacesResult.places, lat, lon);
-            }
-
-            // Update dropdown with available options
-            if (dropdown) {
-                dropdown.innerHTML = '<option value="">Select crowd intensity</option>';
-            }
-
-            // Cache raw intensity data for report/chatbot
-            window.lastHeatmapAnalysis = {
-                lat: Number(lat),
-                lon: Number(lon),
-                counts: {
-                    high: (data.high_intensity || []).length,
-                    medium: (data.medium_intensity || []).length,
-                    low: (data.low_intensity || []).length,
-                },
-                ts: Date.now(),
-            };
-
-            lastCrowdIntensityData = {
-                high: data.high_intensity || [],
-                medium: data.medium_intensity || [],
-                low: data.low_intensity || [],
-            };
-
-            // High Intensity Overlays (Red Circles)
-            if (data.high_intensity && data.high_intensity.length > 0) {
-                if (dropdown) {
-                    const option = document.createElement('option');
-                    option.value = 'high';
-                    option.textContent = `High - High intensity crowded area (${data.high_intensity.length} areas found)`;
-                    dropdown.appendChild(option);
-                }
-
-                if (activeMap) {
-                    data.high_intensity.forEach(area => {
-                        if (_dist(lat, lon, area.latitude, area.longitude) > 5000) return;
-                        const heatmapCircle = L.circle([area.latitude, area.longitude], {
-                            radius: 750,
-                            color: '#1e3a8a',
-                            fillColor: '#ef4444',
-                            fillOpacity: 0.32,
-                            weight: 2
-                        }).addTo(activeMap).bindPopup(`
-                            <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 170px;">
-                                <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
-                                    <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#ef4444;"></span>
-                                    <strong style="color:#ef4444; font-size:0.9rem;">High Footfall Sector</strong>
-                                </div>
-                                <div style="font-size:0.8rem; color:#475569; margin-bottom:4px;">
-                                    <strong>${area.count}</strong> Monitored POIs within 5 km
-                                </div>
-                                <div style="font-size:0.75rem; color:#64748b; background:#fef2f2; padding:3px 6px; border-radius:4px;">
-                                    Prime pedestrian footfall & peak commercial traffic
-                                </div>
-                            </div>
-                        `);
-                        heatmapLayers.push(heatmapCircle);
-
-                        const marker = L.circleMarker([area.latitude, area.longitude], {
-                            radius: 7.5,
-                            color: '#1e3a8a',
-                            fillColor: '#ef4444',
-                            fillOpacity: 1.0,
-                            weight: 2.5
-                        }).addTo(activeMap).bindPopup(`<b>High Intensity Sector</b><br>${area.count} Monitored POIs`);
-                        crowdIntensityAreas.push(marker);
-                    });
-                }
-            }
-
-            // Update revenue prediction & active sensors in footer
-            const revenueDisplay = document.getElementById('revenue-prediction-display');
-            const scoreVal = document.getElementById('crowd-score-value');
-            const revenueVal = document.getElementById('revenue-value');
-
-            if (revenueDisplay) {
-                revenueDisplay.classList.remove('d-none');
-                if (scoreVal) {
-                    const sensorCount = data.active_sensors_count || data.total_pois || data.crowd_score || 0;
-                    scoreVal.textContent = String(sensorCount);
-                    const scoreLabel = scoreVal.parentElement?.querySelector('.revenue-label');
-                    if (scoreLabel) scoreLabel.textContent = 'Active Sensors';
-                    if (sensorCount >= 20) scoreVal.style.color = '#4ade80';
-                    else if (sensorCount >= 8) scoreVal.style.color = '#facc15';
-                    else scoreVal.style.color = '#f87171';
-                }
-                if (revenueVal && (data.estimated_revenue !== undefined || data.total_area_revenue !== undefined)) {
-                    const revenue = data.estimated_revenue || data.total_area_revenue || 0;
-                    revenueVal.textContent = new Intl.NumberFormat('en-IN', {
-                        style: 'currency',
-                        currency: 'INR',
-                        maximumFractionDigits: 0
-                    }).format(revenue);
-                }
-            }
-
-            // Medium Intensity Overlays
-            if (data.medium_intensity && data.medium_intensity.length > 0) {
-                if (dropdown) {
-                    const option = document.createElement('option');
-                    option.value = 'medium';
-                    option.textContent = `Moderate (medium crowd) - ${data.medium_intensity.length} areas found`;
-                    dropdown.appendChild(option);
-                }
-
-                if (activeMap) {
-                    data.medium_intensity.forEach(area => {
-                        if (_dist(lat, lon, area.latitude, area.longitude) > 5000) return;
-                        const heatmapCircle = L.circle([area.latitude, area.longitude], {
-                            radius: 650,
-                            color: '#1e3a8a',
-                            fillColor: '#ef4444',
-                            fillOpacity: 0.28,
-                            weight: 2
-                        }).addTo(activeMap).bindPopup(`
-                            <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 170px;">
-                                <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
-                                    <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#ef4444;"></span>
-                                    <strong style="color:#ef4444; font-size:0.9rem;">Medium Footfall Sector</strong>
-                                </div>
-                                <div style="font-size:0.8rem; color:#475569; margin-bottom:4px;">
-                                    <strong>${area.count}</strong> Monitored POIs within 5 km
-                                </div>
-                                <div style="font-size:0.75rem; color:#64748b; background:#fffbeb; padding:3px 6px; border-radius:4px;">
-                                    Steady consumer footfall with balanced market density
-                                </div>
-                            </div>
-                        `);
-                        heatmapLayers.push(heatmapCircle);
-
-                        const marker = L.circleMarker([area.latitude, area.longitude], {
-                            radius: 7.0,
-                            color: '#1e3a8a',
-                            fillColor: '#ef4444',
-                            fillOpacity: 1.0,
-                            weight: 2.5
-                        }).addTo(activeMap).bindPopup(`<b>Medium Intensity Sector</b><br>${area.count} Monitored POIs`);
-                        crowdIntensityAreas.push(marker);
-                    });
-                }
-            }
-
-            // Low Intensity Overlays
-            if (data.low_intensity && data.low_intensity.length > 0) {
-                if (dropdown) {
-                    const option = document.createElement('option');
-                    option.value = 'low';
-                    option.textContent = `Low (low crowd) - ${data.low_intensity.length} areas found`;
-                    dropdown.appendChild(option);
-                }
-
-                if (activeMap) {
-                    data.low_intensity.forEach(area => {
-                        if (_dist(lat, lon, area.latitude, area.longitude) > 5000) return;
-                        const heatmapCircle = L.circle([area.latitude, area.longitude], {
-                            radius: 500,
-                            color: '#1e3a8a',
-                            fillColor: '#ef4444',
-                            fillOpacity: 0.22,
-                            weight: 1.5
-                        }).addTo(activeMap).bindPopup(`
-                            <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 170px;">
-                                <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
-                                    <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#ef4444;"></span>
-                                    <strong style="color:#ef4444; font-size:0.9rem;">Low Footfall Sector</strong>
-                                </div>
-                                <div style="font-size:0.8rem; color:#475569; margin-bottom:4px;">
-                                    <strong>${area.count}</strong> Monitored POIs within 5 km
-                                </div>
-                                <div style="font-size:0.75rem; color:#64748b; background:#ecfdf5; padding:3px 6px; border-radius:4px;">
-                                    Emerging or quiet zone with lower pedestrian competition
-                                </div>
-                            </div>
-                        `);
-                        heatmapLayers.push(heatmapCircle);
-
-                        const marker = L.circleMarker([area.latitude, area.longitude], {
-                            radius: 6.0,
-                            color: '#1e3a8a',
-                            fillColor: '#ef4444',
-                            fillOpacity: 1.0,
-                            weight: 2
-                        }).addTo(activeMap).bindPopup(`<b>Low Intensity Sector</b><br>${area.count} Monitored POIs`);
-                        crowdIntensityAreas.push(marker);
-                    });
-                }
-            }
-
-            // If no areas found, add default options with explicit Moderate = medium, Low = low
-            if (data.high_intensity.length === 0 && data.medium_intensity.length === 0 && data.low_intensity.length === 0) {
-                if (dropdown) {
-                    dropdown.innerHTML = `
-                        <option value="">Select crowd intensity</option>
-                        <option value="high">High - High intensity crowded area</option>
-                        <option value="medium">Moderate (medium crowd)</option>
-                        <option value="low">Low (low crowd)</option>
-                    `;
-                }
-            }
-
-            if (dropdown) {
-                dropdown.disabled = false;
-            }
-
-            // Draw building outlines around the analyzed location when in dark mode
-            await updateBuildingOutlines(lat, lon);
-        } else {
-            lastCrowdIntensityData = { high: [], medium: [], low: [] };
-            document.getElementById('business-suggestion-card')?.style.setProperty('display', 'none');
-            const mlBox = document.getElementById('mlPrediction');
-            if (mlBox) mlBox.style.display = 'none';
-            updateBusinessTypeOptionsFromPrediction(null);
-            if (dropdown) {
-                dropdown.innerHTML = `
-                    <option value="">Select crowd intensity</option>
-                    <option value="high">High - High intensity crowded area</option>
-                    <option value="medium">Moderate (medium crowd)</option>
-                    <option value="low">Low (low crowd)</option>
-                `;
-                dropdown.disabled = false;
-            }
-            console.error('Error analyzing crowd intensity:', data?.error);
-        }
-    } catch (error) {
-        console.error('Error updating crowd intensity:', error);
+    if (!data || data.success === false) {
+        clearCrowdLayers(activeMap);
         lastCrowdIntensityData = { high: [], medium: [], low: [] };
         document.getElementById('business-suggestion-card')?.style.setProperty('display', 'none');
-        const mlBox = document.getElementById('mlPrediction');
-        if (mlBox) mlBox.style.display = 'none';
         updateBusinessTypeOptionsFromPrediction(null);
-        if (dropdown) {
-            dropdown.innerHTML = `
-                <option value="">Select crowd intensity</option>
-                <option value="high">High - High intensity crowded area</option>
-                <option value="medium">Moderate (medium crowd)</option>
-                <option value="low">Low (low crowd)</option>
-            `;
-            dropdown.disabled = false;
+        resetCrowdDropdown(dropdown);
+        const err = (data && data.error) || 'Crowd analysis failed.';
+        setMapStatus(err, { kind: 'error', retry: () => findPopularPlaces(lat, lon, true) });
+        return { success: false, error: err };
+    }
+
+    clearCrowdLayers(activeMap);
+    if (activeMap && !popularPlacesPanelRequested) clearPopularPlaceMarkers(activeMap);
+
+    // Recommendations for the AI tab and the business-type form options
+    const pred = data.business_prediction;
+    let recommendations = [];
+    if (pred) {
+        if (typeof pred === 'string') {
+            recommendations.push(pred);
+        } else {
+            if (pred.primary) recommendations.push(pred.primary);
+            (pred.alternatives || []).forEach(alt => recommendations.push(alt.business || alt));
+            (pred.choices || []).forEach(c => recommendations.push(c));
         }
     }
+    recommendations = [...new Set(recommendations.map(r => {
+        const s = String(r).replace(/_/g, ' ').trim();
+        return s.charAt(0).toUpperCase() + s.slice(1);
+    }))].filter(Boolean).slice(0, 5);
+
+    const allowBusinessIntelUI = isBusinessRecommendationsMode();
+    const suggestionContent = document.getElementById('business-suggestion-content');
+    if (allowBusinessIntelUI && suggestionContent && recommendations.length) {
+        suggestionContent.innerHTML = '<h5 class="mb-3 text-info"><i class="fas fa-robot me-2"></i>Model recommendations for this area</h5><div class="list-group">'
+            + recommendations.map((rec, idx) => `
+                <div class="list-group-item d-flex justify-content-between align-items-center bg-dark text-light border-secondary">
+                    <div><span class="badge bg-primary rounded-pill me-2">${idx + 1}</span><strong>${escapeHtml(rec)}</strong></div>
+                </div>`).join('')
+            + '</div><p class="mt-3 small text-muted">From the ML model, using this area\'s crowd level and mapped places.</p>';
+        const suggestionCard = document.getElementById('business-suggestion-card');
+        if (suggestionCard) { suggestionCard.style.display = 'block'; suggestionCard.classList.remove('d-none'); }
+    }
+    updateBusinessTypeOptionsFromPrediction(pred, data.business_by_intensity);
+    if (data.business_by_intensity && typeof data.business_by_intensity === 'object') {
+        businessByIntensity = data.business_by_intensity;
+    }
+    const box = document.getElementById('mlPrediction');
+    if (box) box.style.display = 'none';
+
+    if (allowBusinessIntelUI && lastPopularPlacesResult.places.length && sameSpot({ lat: lastPopularPlacesResult.lat, lng: lastPopularPlacesResult.lon }, { lat, lng: lon })) {
+        renderPopularPlacesTable(lastPopularPlacesResult.places, lat, lon);
+    }
+
+    // Cached for the report and the chatbot: which location the map shows now.
+    window.lastHeatmapAnalysis = {
+        lat, lon,
+        name: currentAnalysisLocation && sameSpot(currentAnalysisLocation, { lat, lng: lon }) ? currentAnalysisLocation.name : 'Selected Location',
+        counts: {
+            high: (data.high_intensity || []).length,
+            medium: (data.medium_intensity || []).length,
+            low: (data.low_intensity || []).length,
+        },
+        radius_m: data.analysis_radius || ANALYSIS_RADIUS_M,
+        ts: Date.now(),
+    };
+    lastCrowdIntensityData = { high: data.high_intensity || [], medium: data.medium_intensity || [], low: data.low_intensity || [] };
+
+    if (activeMap && typeof L !== 'undefined') drawCrowdSectors(activeMap, lat, lon, data);
+    renderAreaFooter(data);
+
+    if (dropdown) {
+        dropdown.innerHTML = '<option value="">Select crowd intensity</option>';
+        const labels = { high: 'High - High intensity crowded area', medium: 'Moderate (medium crowd)', low: 'Low (low crowd)' };
+        ['high', 'medium', 'low'].forEach(level => {
+            const n = (data[`${level}_intensity`] || []).length;
+            if (!n) return;
+            const option = document.createElement('option');
+            option.value = level;
+            option.textContent = `${labels[level]} – ${n} sector${n === 1 ? '' : 's'}`;
+            dropdown.appendChild(option);
+        });
+        if (dropdown.options.length === 1) resetCrowdDropdown(dropdown);
+        dropdown.disabled = false;
+    }
+    if (data.no_data) setMapStatus('No mapped places were found within 5 km of this point.', { kind: 'warning' });
+    return { success: true, lat, lon };
 }
 
 // Welcome message handled in initGlobalFloatingUI
@@ -4490,7 +4413,7 @@ function initTheme() {
             themeIcon.textContent = 'â˜€ï¸';
         } else {
             body.classList.remove('light-mode');
-            themeIcon.textContent = 'ðŸŒ™';
+            themeIcon.textContent = '🌙';
         }
     }
     if (isHeatmapPage() && map) updateMapTiles(savedTheme);
@@ -4504,7 +4427,7 @@ function toggleTheme() {
     if (isLightMode) {
         body.classList.remove('light-mode');
         localStorage.setItem('theme', 'dark');
-        themeIcon.textContent = 'ðŸŒ™';
+        themeIcon.textContent = '🌙';
         if (isHeatmapPage() && map) updateMapTiles('dark');
     } else {
         body.classList.add('light-mode');
@@ -4514,22 +4437,11 @@ function toggleTheme() {
     }
 }
 
-function updateMapTiles(theme) {
+function updateMapTiles(_theme) {
+    // The site uses one monochrome satellite map in both colour modes.
     if (!isHeatmapPage() || !map || typeof L === 'undefined') return;
-    const lightUrl = 'https://api.maptiler.com/maps/basic-v2/{z}/{x}/{y}.png?key=SJwCksU5oVIkLOgs9ElB';
-    const darkUrl = 'https://api.maptiler.com/maps/darkmatter/{z}/{x}/{y}.png?key=SJwCksU5oVIkLOgs9ElB';
-
-    const nextUrl = theme === 'light' ? lightUrl : darkUrl;
-    const nextAttribution = '\u003ca href="https://www.maptiler.com/copyright/" target="_blank"\u003e\u0026copy; MapTiler\u003c/a\u003e \u003ca href="https://www.openstreetmap.org/copyright" target="_blank"\u003e\u0026copy; OpenStreetMap contributors\u003c/a\u003e';
-
-    if (baseTileLayer) {
-        map.removeLayer(baseTileLayer);
-    }
-
-    baseTileLayer = L.tileLayer(nextUrl, {
-        attribution: nextAttribution,
-        maxZoom: 19
-    }).addTo(map);
+    if (baseTileLayer) map.removeLayer(baseTileLayer);
+    baseTileLayer = addMonoBaseLayers(map);
 }
 
 // Initialize theme on page load
@@ -4719,6 +4631,8 @@ function initDashboardInteractions() {
             const openMap = () => {
                 setActiveSidebarLink('sidebar-heatmap-link');
                 if (launchpad) launchpad.classList.add('d-none');
+                document.getElementById('business-recommendations-section')?.classList.add('d-none');
+                document.getElementById('dashboard-startup-form-section')?.classList.add('d-none');
                 if (!isBusinessRecommendationsMode()) {
                     const aiPanel = document.getElementById('business-intelligence-panel');
                     if (aiPanel) aiPanel.classList.add('d-none');
@@ -4812,6 +4726,11 @@ function initDashboardInteractions() {
         }
     });
 
+    // Business Recommendations: sidebar link, hero button and launchpad tile
+    ['sidebar-recs-link', 'btn-show-recommendations', 'btn-show-recommendations-2'].forEach(id => {
+        document.getElementById(id)?.addEventListener('click', gateRecommendations);
+    });
+
     // Feature showcase tile: extra AI recommender
     const showAiBtn2 = document.getElementById('btn-show-ai-recommender-2');
     if (showAiBtn2) {
@@ -4886,7 +4805,7 @@ function initDashboardInteractions() {
             };
 
             if (window.requireSupabaseAuth) {
-                window.requireSupabaseAuth('Business Recommendations', openAi);
+                window.requireSupabaseAuth('Business Analytics', openAi);
             } else {
                 openAi();
             }
@@ -5053,14 +4972,14 @@ function initDashboardInteractions() {
         const geoRes = await findMyLocation('dashboard-find-location-btn');
         if (geoRes && geoRes.success && typeof geoRes.lat === 'number') {
             await findPopularPlaces(geoRes.lat, geoRes.lon, false);
-            await updateCrowdIntensityDropdown(geoRes.lat, geoRes.lon);
         }
     });
 
     // Dashboard "Popular Places" trigger
     safeOn('dashboard-popular-places-btn', 'click', async () => {
         popularPlacesPanelRequested = true;
-        if (!userMarker) {
+        let loc = getCurrentAnalysisLocation();
+        if (!loc) {
             showHeatmapToast('Finding your location first...', 'info');
             const geoRes = await findMyLocation('dashboard-find-location-btn');
             if (!geoRes || !geoRes.success) {
@@ -5068,8 +4987,9 @@ function initDashboardInteractions() {
                 popularPlacesPanelRequested = false;
                 return;
             }
+            loc = getCurrentAnalysisLocation();
         }
-        const { lat, lng } = userMarker.getLatLng();
+        const { lat, lng } = loc;
 
         // Ensure analytics section is visible
         const analyticsSection = document.getElementById('dashboard-analytics-section');
@@ -5083,11 +5003,11 @@ function initDashboardInteractions() {
             if (aiPanel) aiPanel.classList.add('d-none');
         }
 
-        await findPopularPlaces(lat, lng);
+        await findPopularPlaces(lat, lng, true, { name: loc.name, view: 'area' });
     });
 
     safeOn('generate-best-locations-btn', 'click', async () => {
-        const selected = getSelectedLocation();
+        const selected = getCurrentAnalysisLocation();
         let lat = selected?.lat;
         let lon = selected?.lng;
 
@@ -5106,31 +5026,22 @@ function initDashboardInteractions() {
     });
 }
 
-async function focusMapOnOpportunityOrLocation(targetLat, targetLon, targetName, targetRev) {
+async function focusMapOnOpportunityOrLocation(targetLat, targetLon, targetName, targetRev, opts = {}) {
     const lat = parseFloat(targetLat);
     const lon = parseFloat(targetLon);
     if (Number.isNaN(lat) || Number.isNaN(lon)) return;
 
-    const activeMap = dashboardMap || map;
+    const activeMap = activeMapInstance();
     if (!activeMap) return;
 
-    activeMap.setView([lat, lon], 14);
-
+    // opts.locationName: the area's name (the popup title can be more specific).
+    const locationName = opts.locationName || targetName || 'Opportunity Location';
+    setAnalysisLocation(lat, lon, locationName);
     if (userMarker) {
         try { activeMap.removeLayer(userMarker); } catch (_e) {}
     }
-    if (analysisRadiusCircle) {
-        try { activeMap.removeLayer(analysisRadiusCircle); } catch (_e) {}
-    }
-
-    analysisRadiusCircle = L.circle([lat, lon], {
-        radius: 5000,
-        color: '#2563eb',
-        fillColor: '#3b82f6',
-        fillOpacity: 0.12,
-        weight: 2,
-        dashArray: '6, 6'
-    }).addTo(activeMap).bindTooltip('5 km Radius Zone', { permanent: false, direction: 'top' });
+    drawAnalysisRadius(lat, lon, { fit: false });
+    zoomToPin(lat, lon);
 
     const revFormatted = targetRev && Number(targetRev) > 0
         ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(targetRev)) + ' /mo'
@@ -5139,14 +5050,11 @@ async function focusMapOnOpportunityOrLocation(targetLat, targetLon, targetName,
     const popupHtml = `
         <div style="min-width: 220px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
             <div style="font-weight: 700; font-size: 1rem; color: #1e293b; margin-bottom: 4px;">
-                <i class="fas fa-bullseye text-primary me-1"></i>${targetName || 'Opportunity Location'}
+                <i class="fas fa-bullseye text-primary me-1"></i>${escapeHtml(targetName || 'Opportunity Location')}
             </div>
             ${revFormatted ? `<div style="font-size: 0.85rem; color: #16a34a; font-weight: 600; margin-bottom: 4px;"><i class="fas fa-chart-line me-1"></i>Starting Rev: ${revFormatted}</div>` : ''}
             <div style="font-size: 0.8rem; color: #64748b; margin-bottom: 6px;">
                 Lat/Lon: ${lat.toFixed(4)}, ${lon.toFixed(4)} • 5 km Analysis Zone Active
-            </div>
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; color: #334155;">
-                <i class="fas fa-check-circle text-success me-1"></i>Real crowd signals & recommendations synchronized
             </div>
         </div>
     `;
@@ -5159,14 +5067,15 @@ async function focusMapOnOpportunityOrLocation(targetLat, targetLon, targetName,
             iconAnchor: [12, 41],
             popupAnchor: [1, -34],
             shadowSize: [41, 41]
-        })
+        }),
+        zIndexOffset: 1000
     }).addTo(activeMap).bindPopup(popupHtml).openPopup();
 
     const searchInput = document.getElementById('dashboard-location-search');
-    if (searchInput && targetName) searchInput.value = targetName;
+    if (searchInput) searchInput.value = locationName;
 
     // Trigger crowd analysis and popular places for 5000m radius
-    await findPopularPlaces(lat, lon, false);
+    return findPopularPlaces(lat, lon, false, { name: locationName });
 }
 window.focusMapOnOpportunityOrLocation = focusMapOnOpportunityOrLocation;
 
@@ -5180,23 +5089,31 @@ function initDynamicDashboardMap() {
     }
 
     const urlParams = new URLSearchParams(window.location.search);
-    const stored = getSelectedLocation();
+    const stored = getCurrentAnalysisLocation();
     const initialLat = parseFloat(urlParams.get('lat')) || (stored ? parseFloat(stored.lat) : 12.9716);
     const initialLon = parseFloat(urlParams.get('lon')) || (stored ? parseFloat(stored.lng) : 77.5946);
 
     // Initialize Leaflet on the dashboard-specific viewport
     dashboardMap = L.map('dashboard-map').setView([initialLat, initialLon], 13);
-    L.tileLayer('https://api.maptiler.com/maps/basic-v2/{z}/{x}/{y}.png?key=SJwCksU5oVIkLOgs9ElB', {
-        attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>',
-        maxZoom: 19,
-        crossOrigin: true  // MapTiler sends CORS headers; lets the PDF report capture the map
-    }).addTo(dashboardMap);
+    baseTileLayer = addMonoBaseLayers(dashboardMap);
+    addSaveLocationControl(dashboardMap);
 
     // Sync with global 'map' variable for compatibility with existing search/location functions
     map = dashboardMap;
 
     const statusEl = document.getElementById('map-status');
     if (statusEl) statusEl.textContent = 'Map Ready';
+
+    // Decorative building outlines (dark theme) only at street zoom, never during the analysis.
+    let buildingTimer = null;
+    dashboardMap.on('zoomend moveend', () => {
+        clearTimeout(buildingTimer);
+        if (dashboardMap.getZoom() < 16) { clearBuildingOutlines(); return; }
+        buildingTimer = setTimeout(() => {
+            const c = dashboardMap.getCenter();
+            updateBuildingOutlines(c.lat, c.lng);
+        }, 800);
+    });
 
     dashboardMap.on('click', async function (e) {
         const lat = e.latlng.lat;
@@ -5210,19 +5127,18 @@ function initDynamicDashboardMap() {
             const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`);
             const data = await response.json();
             if (data && data.display_name) {
-                const parts = data.display_name.split(',');
-                const local = parts[0].trim();
-                const city = (data.address && (data.address.city || data.address.town || data.address.village || data.address.suburb)) || '';
-                placeName = city ? `${local}, ${city}` : local;
+                // Name the area, not whatever feature happens to be nearest (e.g. "auto repair shop").
+                const a = data.address || {};
+                const local = a.neighbourhood || a.suburb || a.quarter || a.village || a.road || data.display_name.split(',')[0].trim();
+                const city = a.city || a.town || a.county || a.state_district || '';
+                placeName = city && city !== local ? `${local}, ${city}` : local;
             }
         } catch (err) {
             console.error('Reverse geocode failed:', err);
         }
 
         if (searchInput) searchInput.value = placeName;
-        await selectSearchResult(lat, lon, placeName);
-        await findPopularPlaces(lat, lon, false);
-        await updateCrowdIntensityDropdown(lat, lon);
+        await selectSearchResult(lat, lon, placeName);  // runs the analysis for this point
     });
 
     // Invalidate size after animation completes
@@ -5344,6 +5260,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const triggerMap = (window.location.hash === '#map' || urlParams.get('auto_map') === 'true');
     const triggerAi = (urlParams.get('ai') === 'true');
+    const triggerForm = (urlParams.get('form') === 'startup');
+    // Declared before use: reading it earlier threw a ReferenceError that aborted
+    // this whole initialiser on every plain /dashboard/ load. Only a recent choice is reused.
+    const stored = getCurrentAnalysisLocation();
 
     if (triggerMap) {
         setActiveSidebarLink('sidebar-heatmap-link');
@@ -5388,12 +5308,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('btn-show-ai-recommender').click();
             }
         }, 200);
-    }
-
-    const stored = getSelectedLocation();
-    if (stored && document.getElementById('dashboard-location-search')) {
-        // Purposely do not auto-fill the search box to allow the HTML placeholder "Search areas..." to show.
-        // The background map state is still loaded seamlessly.
+    } else if (urlParams.get('recs') === 'true') {
+        setTimeout(() => gateRecommendations(), 200);
+    } else if (triggerForm && document.getElementById('sidebar-startup-form-link')) {
+        setTimeout(() => document.getElementById('sidebar-startup-form-link').click(), 200);
     }
 
     initDashboardAIFromStorage();
@@ -5435,7 +5353,7 @@ function initDashboardFloatingUI() {
         });
     }
 
-    // --- Form Location Autocomplete (Nominatim) â€” used in Flow A ---
+    // --- Form Location Autocomplete (Nominatim) — used in Flow A ---
     const formLocInput = document.getElementById('form-location-search');
     const formLocSuggestions = document.getElementById('form-location-suggestions');
 
@@ -5588,9 +5506,10 @@ function initDashboardFloatingUI() {
                 if (!feasBanner) return;
                 feasBanner.style.display = 'block';
                 feasBanner.textContent = msg;
-                feasBanner.style.background = type === 'success' ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)';
-                feasBanner.style.border = `1px solid ${type === 'success' ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)'}`;
-                feasBanner.style.color = type === 'success' ? '#4ade80' : '#f87171';
+                // Black/white system: success is plain white; red is kept only for errors.
+                feasBanner.style.background = type === 'success' ? 'rgba(255,255,255,0.08)' : 'rgba(248,113,113,0.12)';
+                feasBanner.style.border = `1px solid ${type === 'success' ? '#ffffff' : 'rgba(248,113,113,0.4)'}`;
+                feasBanner.style.color = type === 'success' ? '#ffffff' : '#f87171';
             };
 
             if (!bizType) {
@@ -5655,10 +5574,14 @@ function initDashboardFloatingUI() {
             showBanner('✓ Feasible! ' + successMsg + ' — Orange markers placed on map.', 'success');
             notifyChatFromMap(feasData.message || `Feasible. Orange markers placed for ${bizType}.`);
 
+            // Then take the user to the map, zoomed in on the business location.
             setTimeout(() => {
                 if (formModal) formModal.classList.remove('modal-open');
                 if (feasBanner) feasBanner.style.display = 'none';
-            }, 3000);
+                const placeName = (getCurrentAnalysisLocation() && sameSpot(getCurrentAnalysisLocation(), { lat, lng: lon }))
+                    ? getCurrentAnalysisLocation().name : 'Business location';
+                navigateToMapOpportunity(lat, lon, placeName, bizType);
+            }, 2000);
 
             if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i>Check Feasibility & Submit'; }
         });
@@ -5676,7 +5599,7 @@ function _initFormFlow() {
     const hasLocation = lastPopularPlacesResult.places.length > 0 || !!storedLocation;
 
     if (hasLocation) {
-        // â”€â”€ FLOW B: Location already selected on map â”€â”€
+        // ── FLOW B: Location already selected on map ──
         // Pre-fill location field (read-only)
         const flowLat = lastPopularPlacesResult.lat || storedLocation?.lat;
         const flowLon = lastPopularPlacesResult.lon || storedLocation?.lng;
@@ -5702,7 +5625,7 @@ function _initFormFlow() {
             _setFlowHint('Location selected. Click Popular Places to load nearby business types.');
         }
     } else {
-        // â”€â”€ FLOW A: No location selected yet â”€â”€
+        // ── FLOW A: No location selected yet ──
         if (formLocInput) {
             formLocInput.value = '';
             formLocInput.readOnly = false;

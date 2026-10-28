@@ -2,15 +2,18 @@
  * AI-Powered Business Intelligence Report Generator (frontend).
  *
  * One flow serves the dashboard button and the chatbot:
- *   1. resolve the selected location (localStorage 'selectedLocation')
- *   2. make sure the live heatmap on the dashboard map belongs to that location
- *   3. capture the map (tiles + heatmap overlays + markers) onto a canvas
- *   4. POST /api/reports/generate/ (Supabase bearer token + CSRF)
+ *   1. resolve the location: the one whose analysis is on the map now, else the
+ *      current analysis location (never an old localStorage entry)
+ *   2. wait until the heatmap on the map is the finished analysis of exactly that place
+ *   3. fit the 5 km circle and capture the map; retry once; if it still fails the
+ *      server draws a static map of the same analysis
+ *   4. POST /api/reports/generate/ with a business *category* (from the allowed
+ *      list) and the address as a separate field
  *   5. poll /api/reports/<id>/status/ and show the server's real stages
  *   6. download the PDF with the same bearer token
  *
- * Depends on globals from main.js: getSelectedLocation, getCookie, map,
- * dashboardMap, updateCrowdIntensityDropdown, isDashboardPage, addChatMessage.
+ * Depends on globals from main.js: getCurrentAnalysisLocation, getCookie, map,
+ * dashboardMap, updateCrowdIntensityDropdown, drawAnalysisRadius, isDashboardPage, addChatMessage.
  */
 (function () {
     'use strict';
@@ -21,6 +24,7 @@
     const QUESTION_RE = /^\s*(how|what|why|when|where|which|explain|tell\s+me\s+about)\b/i;
 
     const MAX_CAPTURE_OFFSET_M = 30;   // same tolerance as report_generator/validators.py
+    const REPORT_RADIUS_M = 5000;      // the website heatmap's radius (validators.SUPPORTED_RADII_M)
     const MAX_IMAGE_CHARS = 2.6e6;     // stays under Django's 2.5 MB request body default
     const POLL_MS = 1500;
     const POLL_TIMEOUT_MS = 6 * 60 * 1000;
@@ -108,6 +112,28 @@
         if (typeof addChatMessage === 'function') addChatMessage(text, 'bot', actions);
     }
 
+    // --------------------------------------------------------- categories ----
+
+    let categoriesPromise = null;
+    function allowedCategories() {
+        if (!categoriesPromise) {
+            categoriesPromise = fetch('/api/business-types/')
+                .then(r => r.ok ? r.json() : {})
+                .then(d => (d.business_types || []).map(t => String(t.value || t)))
+                .catch(() => []);
+        }
+        return categoriesPromise;
+    }
+
+    /** A value from the allowed category list, or '' (the server then uses the ML recommendation). */
+    async function cleanCategory(value) {
+        const norm = (v) => String(v || '').trim().toLowerCase().replace(/[\s_-]+/g, '_');
+        const key = norm(value);
+        if (!key || key.length > 60) return '';
+        const allowed = await allowedCategories();
+        return allowed.find((v) => norm(v) === key) || '';
+    }
+
     // -------------------------------------------------------------- auth ----
 
     async function authHeaders() {
@@ -140,6 +166,7 @@
         return !!(h && distanceM(h.lat, h.lon, loc.lat, loc.lng) <= MAX_CAPTURE_OFFSET_M);
     }
 
+    /** Make the map show the finished analysis of exactly `loc`, fitted to its 5 km circle. */
     async function ensureHeatmapFor(loc) {
         openDashboardMap();
         await sleep(300);
@@ -149,15 +176,20 @@
             if (typeof updateCrowdIntensityDropdown !== 'function') {
                 throw new Error('The heatmap for the selected location has not been analysed yet.');
             }
-            setMessage('Running the heatmap for the selected location…');
-            await updateCrowdIntensityDropdown(loc.lat, loc.lng);
-            if (!heatmapMatches(loc)) throw new Error('The heatmap analysis for the selected location did not complete.');
+            setMessage('Running the crowd analysis for the selected location…');
+            let result = await updateCrowdIntensityDropdown(loc.lat, loc.lng);
+            if (!(result && result.success) && !heatmapMatches(loc)) {
+                setMessage('Retrying the crowd analysis…');
+                result = await updateCrowdIntensityDropdown(loc.lat, loc.lng);
+            }
+            if (!heatmapMatches(loc)) {
+                const why = result && result.error ? result.error : 'it was replaced by a newer map selection';
+                throw new Error('The crowd analysis for this location did not finish (' + why + ').');
+            }
         }
-        // Keep the user's zoom; only pan if the location is outside the visible map.
-        if (!m.getBounds().contains([loc.lat, loc.lng])) {
-            m.setView([loc.lat, loc.lng], m.getZoom(), { animate: false });
-        }
+        if (typeof drawAnalysisRadius === 'function') drawAnalysisRadius(loc.lat, loc.lng, { fit: true });
         m.invalidateSize();
+        await sleep(400);  // let the fit animation and overlay redraw settle
         return m;
     }
 
@@ -213,14 +245,27 @@
         };
         let skipped = 0;
 
-        // 1. Base map tiles
+        // 1. Base map tiles, each layer with its on-screen CSS filter / blend mode (the
+        //    monochrome satellite + white outline layers). Where canvas filters are not
+        //    supported, filtered overlay layers are left out rather than drawn wrongly.
         const tiles = container.querySelectorAll('.leaflet-tile-pane img.leaflet-tile-loaded');
+        const canFilter = 'filter' in ctx;
         for (const tile of tiles) {
             const r = at(tile);
             if (r.x > box.width || r.y > box.height || r.x + r.w < 0 || r.y + r.h < 0) continue;
+            const layer = tile.closest('.leaflet-layer');
+            const css = layer ? getComputedStyle(layer) : null;
+            const filter = css && css.filter !== 'none' ? css.filter : 'none';
+            const blend = css && css.mixBlendMode !== 'normal' ? css.mixBlendMode : 'source-over';
+            if (blend !== 'source-over' && !canFilter) continue;
+            ctx.save();
+            if (canFilter) ctx.filter = filter;
+            ctx.globalCompositeOperation = blend;
+            ctx.globalAlpha = css ? Number(css.opacity) : 1;
             try {
                 ctx.drawImage(await corsCopy(tile), r.x, r.y, r.w, r.h);
             } catch (_e) { skipped += 1; }
+            ctx.restore();
         }
         if (tiles.length && skipped === tiles.length) throw new Error('The map tiles could not be read (cross-origin restriction).');
 
@@ -243,7 +288,10 @@
         // 3. Marker shadows and icons
         for (const img of container.querySelectorAll('.leaflet-shadow-pane img, .leaflet-marker-pane img')) {
             const r = at(img);
+            ctx.save();
+            if (canFilter) ctx.filter = getComputedStyle(img).filter || 'none';   // greyscale pins, as on screen
             try { ctx.drawImage(await corsCopy(img), r.x, r.y, r.w, r.h); } catch (_e) { skipped += 1; }
+            ctx.restore();
         }
 
         // 4. Legend and attribution, as on the website
@@ -336,16 +384,21 @@
         setMessage(`${pages}${info && info.ai_used ? '' : 'AI commentary was unavailable; template explanations were used. '}Available for 24 hours.`, 'success');
     }
 
-    async function run(source) {
-        let loc = typeof getSelectedLocation === 'function' ? getSelectedLocation() : null;
-        if (!loc && typeof userMarker !== 'undefined' && userMarker && typeof userMarker.getLatLng === 'function') {
-            const pt = userMarker.getLatLng();
-            loc = { lat: pt.lat, lng: pt.lng, name: 'Current Location' };
-        } else if (!loc && window.lastHeatmapAnalysis) {
-            loc = { lat: window.lastHeatmapAnalysis.lat, lng: window.lastHeatmapAnalysis.lon, name: 'Scanned Location' };
+    /** The place whose analysis is on screen; else the current analysis location; else null. */
+    function resolveLocation() {
+        const current = typeof getCurrentAnalysisLocation === 'function' ? getCurrentAnalysisLocation() : null;
+        const h = window.lastHeatmapAnalysis;
+        if (h && (!current || distanceM(h.lat, h.lon, current.lat, current.lng) <= MAX_CAPTURE_OFFSET_M)) {
+            return { lat: h.lat, lng: h.lon, name: (current && current.name) || h.name || 'Analysed location',
+                     category: current && (current.category || current.type) };
         }
+        return current ? { lat: current.lat, lng: current.lng, name: current.name, category: current.category || current.type } : null;
+    }
+
+    async function run(source, options = {}) {
+        const loc = options.location || resolveLocation();
         if (!loc) {
-            const msg = 'Select a location first: search for a place or click the map.';
+            const msg = 'Select a location first: search for a place, click the map or use "Find My Location".';
             if (source === 'chat') chat('📍 ' + msg);
             ensurePanel(); showPanel(''); setMessage(msg, 'error');
             renderStages([]);
@@ -358,7 +411,7 @@
         }
         const headers = await authHeaders();
         if (!headers) {
-            if (window.requireSupabaseAuth) window.requireSupabaseAuth('Detailed Report', () => start({ source }));
+            if (window.requireSupabaseAuth) window.requireSupabaseAuth('Detailed Report', () => start({ source, ...options }));
             return;
         }
 
@@ -371,10 +424,21 @@
             const heatmap = {};
             try {
                 const m = await ensureHeatmapFor({ lat, lng });
-                await waitForTiles(m, 8000);
-                setMessage('Capturing the heatmap…');
-                const shot = await captureMap(m);
+                let shot = null;
+                let lastErr = null;
+                for (let attempt = 1; attempt <= 2 && !shot; attempt++) {
+                    try {
+                        await waitForTiles(m, 8000);
+                        setMessage(attempt === 1 ? 'Capturing the heatmap…' : 'Retrying the heatmap capture…');
+                        shot = await captureMap(m);
+                    } catch (err) {
+                        lastErr = err;
+                        await sleep(1500);
+                    }
+                }
+                if (!shot) throw lastErr || new Error('capture failed');
                 const h = window.lastHeatmapAnalysis;
+                if (!heatmapMatches({ lat, lng })) throw new Error('the map changed to another location during capture');
                 const centre = m.getCenter();
                 Object.assign(heatmap, {
                     image: shot.dataUrl,
@@ -383,16 +447,18 @@
                     sector_counts: h.counts, captured_at: Date.now(),
                 });
             } catch (err) {
-                // Generate anyway: the server reconstructs the sectors and the PDF
-                // states clearly that the screenshot is missing and why.
+                // The server then draws a static map of the same analysis (no screenshot of another place).
                 heatmap.capture_error = String(err && err.message || err).slice(0, 200);
-                setMessage('Heatmap capture failed: ' + heatmap.capture_error + ' The report will say so.', 'warning');
+                setMessage('Live map capture failed (' + heatmap.capture_error + '). The report will use a server-drawn map of the same analysis.', 'warning');
             }
 
+            const shortName = String(loc.name || '').split(',').slice(0, 2).join(',').trim();
+            // Same character rules as report_generator/validators.py validate_address.
+            const address = String(loc.name || '').replace(/[^\p{L}\p{M}\p{N},\-&'.\/()_ #:]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 255);
             const body = {
-                location: { name: loc.name || '', latitude: lat, longitude: lng },
-                radius_m: 2000,
-                business_type: loc.type || '',
+                location: { name: shortName, address, latitude: lat, longitude: lng },
+                radius_m: REPORT_RADIUS_M,
+                business_type: await cleanCategory(options.businessType || loc.category),
                 scope: 'full',
                 source: source,
                 heatmap: heatmap,
@@ -433,7 +499,7 @@
             ensurePanel().classList.remove('d-none');
             return;
         }
-        run((options && options.source) || 'dashboard');
+        run((options && options.source) || 'dashboard', options || {});
     }
 
     document.addEventListener('DOMContentLoaded', () => {

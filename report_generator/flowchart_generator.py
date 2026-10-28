@@ -126,7 +126,7 @@ def build_all(snapshot):
          'note': f'Overpass API, {radius:,} m radius: shops, amenities, buildings, roads, transit'},
         {'text': 'Summarise points of interest', 'note': 'Counts by category; competitor matching'},
         {'text': 'Classify 9 sectors by feature count', 'kind': 'model',
-         'note': '3 rings x 3 wedges. High 15+, Medium 5–14, Low 1–4'},
+         'note': '3 rings x 3 wedges. Density: High ≥60/km², Medium 25–59, Low <25'},
         {'text': 'ML business recommendation', 'kind': 'model', 'note': 'Decision tree on intensity + area type'},
         {'text': 'Feasibility rules (Go / No-Go)', 'kind': 'output',
          'note': 'Dataset list, model match, or 2+ similar places nearby'},
@@ -161,7 +161,7 @@ def build_all(snapshot):
 
     assumptions = rev.get('assumptions') or {}
     d = flowchart([
-        {'text': 'Mapped features around the location', 'kind': 'start', 'note': 'OpenStreetMap, 2 km'},
+        {'text': 'Mapped features around the location', 'kind': 'start', 'note': 'OpenStreetMap, 5 km'},
         {'text': 'Visitor proxy and area scores', 'kind': 'model',
          'note': 'Distance-weighted counts of homes, offices, transit, attractions (not measured footfall)'},
         {'text': 'Huff model: share of local demand', 'kind': 'model',

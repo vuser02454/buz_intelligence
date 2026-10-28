@@ -123,6 +123,9 @@ def _render_pdf_reportlab(context):
     story.append(Paragraph(str(rev_text), body_style))
     story.append(Spacer(1, 10))
 
+    # Business Synergy Opportunity Analysis (same snapshot values as the WeasyPrint section)
+    _reportlab_synergy(story, (context.get('s') or {}).get('synergy'), h2_style, body_style, meta_style)
+
     # Risk Analysis
     story.append(Paragraph("Risk analysis", h2_style))
     risk_text = (t_stages.get('risks', {}).get('text')
@@ -141,6 +144,73 @@ def _render_pdf_reportlab(context):
     buffer.close()
     reader = PdfReader(io.BytesIO(pdf))
     return pdf, len(reader.pages)
+
+
+def _reportlab_synergy(story, syn, h2_style, body_style, meta_style):
+    from xml.sax.saxutils import escape
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+
+    def rs(v):  # the built-in Helvetica has no rupee glyph
+        return 'Rs ' + f'{int(round(float(v or 0))):,}'
+
+    def para(text, style=body_style):
+        story.append(Paragraph(escape(str(text)), style))
+
+    def table(rows, widths):
+        t = Table(rows, colWidths=widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTSIZE', (0, 0), (-1, -1), 7.5),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 6))
+
+    story.append(Paragraph("Business Synergy Opportunity Analysis", h2_style))
+    if not syn or syn.get('status') != 'ok':
+        para('Data unavailable for this analysis. ' + str((syn or {}).get('reason') or ''))
+        story.append(Spacer(1, 10))
+        return
+    ex = syn['explanation']
+    para('Synergy figures are model projections from OpenStreetMap data and the revenue engine, not measured results.', meta_style)
+    para(f"1. Overview: Synergy Potential Score {syn['score']:.1f}/100 ({syn['level']}) for {syn['business']}; "
+         f"data confidence {syn['data']['confidence']} ({syn['data']['mapped_places_1500m']} mapped places within 1.5 km). {ex['why']}")
+    for number, kind, title in ((2, 'Nearby business', 'Existing businesses that could help'),
+                                (3, 'Surrounding demand', 'Environmental opportunities')):
+        para(f'{number}. {title}')
+        items = [s for s in ex['supports'] if s['kind'] == kind]
+        if items:
+            table([['Nearby', 'Count', 'Nearest', 'Examples', 'Points']] + [
+                [Paragraph(escape(s['title']), meta_style), s['count'], f"{s['nearest_m']} m",
+                 Paragraph(escape('; '.join(f"{e['name']} ({e['distance_m']} m)" for e in s['examples'])), meta_style),
+                 f"{s['points']:.1f}"] for s in items], [120, 40, 50, 250, 40])
+        else:
+            para('None found in the map data.', meta_style)
+    para('4. Synergy calculations')
+    table([['Factor', 'Score', 'Weight', 'Points']]
+          + [[f['label'], f"{f['score']:.1f}", f"{f['weight'] * 100:g}%", f"{f['points']:.1f}"] for f in syn['factors']]
+          + [['Synergy Potential Score', '', '100%', f"{syn['score']:.1f}"]], [260, 70, 70, 70])
+    para('5. Revenue impact scenarios')
+    table([['Scenario', 'Uplift', 'Gross sales / month', 'Additional / month']]
+          + [[r['label'], '-' if r['scenario'] == 'base' else f"+{r['uplift_pct']}%", rs(r['monthly']),
+              '-' if r['scenario'] == 'base' else rs(r['additional'])] for r in syn['revenue']['rows']], [160, 70, 120, 120])
+    para(syn['revenue']['method'], meta_style)
+    comp = syn.get('comparison')
+    if comp:
+        para(f"Best by the existing model: {comp['model']['name']}. Best synergy potential: {comp['synergy']['name']} "
+             f"({comp['synergy']['synergy_score']:.1f}). Best overall: {comp['overall']['name']} ({comp['overall']['overall_score']:.1f}).",
+             meta_style)
+    para('6. Risks and limitations')
+    for r in ex['risks']:
+        para('- ' + r, meta_style)
+    para('7. Practical advice')
+    for i, a in enumerate(ex['actions'], 1):
+        para(f'{i}. {a}', meta_style)
+    para(ex['disclaimer'], meta_style)
+    story.append(Spacer(1, 10))
 
 
 def render_pdf(context):

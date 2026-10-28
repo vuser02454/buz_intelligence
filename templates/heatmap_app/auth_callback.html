@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block title %}Verifying your account | Business Intelligence{% endblock %}
+
+{% block extra_css %}
+<style>
+    .callback-wrap { min-height: calc(100vh - 140px); display: flex; align-items: center; justify-content: center; padding: 40px 20px; position: relative; z-index: 2; }
+    .callback-card { background: rgba(13, 17, 23, 0.9); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; max-width: 460px; width: 100%; padding: 36px 32px; text-align: center; color: #e2e8f0; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8); }
+    .callback-card h1 { font-size: 1.35rem; font-weight: 700; color: #fff; margin: 14px 0 8px; }
+    .callback-card p { color: #94a3b8; font-size: 0.92rem; margin-bottom: 18px; }
+    .callback-icon { font-size: 2.4rem; }
+    .callback-icon.ok { color: #34d399; }
+    .callback-icon.err { color: #f87171; }
+    .callback-icon.wait { color: #38bdf8; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="callback-wrap">
+    <div class="callback-card" role="status" aria-live="polite">
+        <div id="cb-icon" class="callback-icon wait"><i class="fas fa-spinner fa-spin"></i></div>
+        <h1 id="cb-title">Verifying your account…</h1>
+        <p id="cb-text">Please wait a moment.</p>
+        <div id="cb-actions" class="d-none">
+            <a class="btn btn-primary-blue btn-sm" id="cb-primary" href="/login/">Go to Sign In</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ next_url|json_script:"callback-next-url" }}
+<script>
+(function () {
+    'use strict';
+    const nextUrl = JSON.parse(document.getElementById('callback-next-url').textContent) || '/dashboard/';
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const query = new URLSearchParams(window.location.search);
+    const type = hash.get('type') || query.get('type') || '';
+    const errorText = hash.get('error_description') || query.get('error_description');
+
+    function show(state, title, text, linkHref, linkLabel) {
+        const icon = document.getElementById('cb-icon');
+        icon.className = 'callback-icon ' + state;
+        icon.innerHTML = state === 'ok' ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-exclamation-circle"></i>';
+        document.getElementById('cb-title').textContent = title;
+        document.getElementById('cb-text').textContent = text;
+        if (linkHref) {
+            const a = document.getElementById('cb-primary');
+            a.href = linkHref;
+            a.textContent = linkLabel;
+            document.getElementById('cb-actions').classList.remove('d-none');
+        }
+    }
+
+    function withFlag(url, flag) {
+        return url + (url.includes('?') ? '&' : '?') + flag;
+    }
+
+    // Tokens must not stay in the address bar or the browser history.
+    function scrubUrl() {
+        if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname + '?next=' + encodeURIComponent(nextUrl));
+        }
+    }
+
+    async function run() {
+        if (errorText) {
+            scrubUrl();
+            show('err', 'This link could not be used',
+                 errorText.replace(/\+/g, ' ') + '. Links expire after a while and work only once. Request a new one from the sign-in page.',
+                 '/login/', 'Go to Sign In');
+            return;
+        }
+        if (!window.SupabaseAuth) {
+            show('err', 'Something went wrong', 'The sign-in service did not load. Please reload this page.', window.location.href, 'Reload');
+            return;
+        }
+        // supabase-js reads the #access_token=… fragment (or ?code=) while it
+        // initialises; refresh() then verifies the resulting session with the server.
+        const user = await window.SupabaseAuth.refresh();
+        scrubUrl();
+
+        if (type === 'recovery') {
+            if (user) { window.location.replace('/login/?mode=reset'); return; }
+            show('err', 'Reset link expired', 'Please request a new password reset e-mail.', '/login/', 'Go to Sign In');
+            return;
+        }
+        if (user) {
+            show('ok', 'Email verified', 'Your account is confirmed. Taking you to your dashboard…');
+            setTimeout(() => window.location.replace(withFlag(nextUrl, 'email_verified=1')), 900);
+            return;
+        }
+        // Confirmed, but no session was created (e.g. opened in another browser): sign in normally.
+        show('ok', 'Email verified', 'Your e-mail address is confirmed. Please sign in to continue.',
+             '/login/?verified=1&next=' + encodeURIComponent(nextUrl), 'Sign In');
+    }
+
+    document.addEventListener('DOMContentLoaded', run);
+})();
+</script>
+{% endblock %}

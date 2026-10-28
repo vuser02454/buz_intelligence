@@ -12,12 +12,14 @@ import binascii
 import io
 import math
 import re
+import unicodedata
 
 from PIL import Image, UnidentifiedImageError
 
 from business_intelligence.analysis import HEATMAP_RADIUS_M
 
-SUPPORTED_RADII_M = (2000, 5000, HEATMAP_RADIUS_M)
+# Reports analyse the same 5 km circle as the website heatmap (2 km reports never matched the map).
+SUPPORTED_RADII_M = (HEATMAP_RADIUS_M,)
 # How far (metres) the analysed heatmap centre may be from the requested
 # location before we refuse to pair that screenshot with this report.
 MAX_CAPTURE_OFFSET_M = 30.0
@@ -26,7 +28,12 @@ MIN_IMAGE_SIZE = (300, 200)
 MAX_IMAGE_SIZE = (4096, 4096)
 
 _CONTROL_CHARS = re.compile(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]')
-_BUSINESS_RE = re.compile(r"^[A-Za-z0-9 _&'./-]{1,60}$")
+# Business categories and place names: letters/marks/digits in any script plus
+# spaces and , - & ' . / ( ) _ . Everything else (markup, template and code
+# syntax such as < > { } [ ] ` $ ; | \ " = %) is rejected.
+_TEXT_PUNCT = set(",-&'./()_ ")
+BUSINESS_TYPE_MAX = 60
+ADDRESS_MAX = 255
 _DATA_URL_RE = re.compile(r'^data:image/(png|jpeg);base64,([A-Za-z0-9+/=\s]+)$')
 
 
@@ -69,12 +76,50 @@ def validate_coordinates(lat, lon):
     return lat, lon
 
 
+def _normalise(value, max_len):
+    text = unicodedata.normalize('NFKC', clean_text(value, max_len * 4))
+    return ' '.join(text.split())
+
+
+def _bad_chars(text, extra=''):
+    allowed = _TEXT_PUNCT | set(extra)
+    return sorted({ch for ch in text if not (unicodedata.category(ch)[0] in 'LMN' or ch in allowed)})
+
+
 def validate_business_type(value):
-    text = clean_text(value, 60)
+    """
+    A business category such as "cafe", "Coffee Shop" or "ಕಾಫಿ ಅಂಗಡಿ". Unicode,
+    commas, hyphens and ampersands are fine; markup/code characters and
+    address-length text are rejected with a message saying why.
+    """
+    text = _normalise(value, BUSINESS_TYPE_MAX)
     if not text:
         return ''
-    if not _BUSINESS_RE.match(text):
-        raise ValidationError('business_type contains unsupported characters')
+    if len(text) > BUSINESS_TYPE_MAX:
+        raise ValidationError(
+            f'business_type is too long ({len(text)} characters, max {BUSINESS_TYPE_MAX}). '
+            'Send a business category such as "cafe"; put the address in location.address.',
+            'invalid_business_type')
+    bad = _bad_chars(text)
+    if bad:
+        raise ValidationError(
+            'business_type contains characters that are not allowed (' + ' '.join(bad[:5]) + '). '
+            "Use letters, numbers, spaces and , - & ' . / ( ) only.", 'invalid_business_type')
+    if '://' in text or '//' in text:
+        raise ValidationError('business_type must be a business category, not a link.', 'invalid_business_type')
+    return text
+
+
+def validate_address(value):
+    """Free-text address shown in the report; same character rules plus # and : (e.g. "#12, 2nd Main")."""
+    text = _normalise(value, ADDRESS_MAX)
+    if not text:
+        return ''
+    text = text[:ADDRESS_MAX]
+    bad = _bad_chars(text, extra='#:')
+    if bad:
+        raise ValidationError('location.address contains characters that are not allowed (' + ' '.join(bad[:5]) + ').',
+                              'invalid_address')
     return text
 
 
@@ -90,6 +135,7 @@ def validate_report_request(data):
         raise ValidationError('location is required. Select a location on the map first.', 'no_location')
     lat, lon = validate_coordinates(location.get('latitude'), location.get('longitude'))
     name = clean_text(location.get('name'), 200) or f'{lat:.5f}, {lon:.5f}'
+    address = validate_address(location.get('address'))
 
     radius = data.get('radius_m', HEATMAP_RADIUS_M)
     try:
@@ -115,6 +161,7 @@ def validate_report_request(data):
 
     return {
         'name': name,
+        'address': address,
         'latitude': lat,
         'longitude': lon,
         'radius_m': radius,

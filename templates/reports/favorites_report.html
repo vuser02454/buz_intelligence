@@ -1,0 +1,123 @@
+{% load report_tags %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ meta.title }}</title>
+<style>
+  @font-face { font-family: "DM Sans"; src: url("{{ fonts.body }}"); font-weight: 400; }
+  @font-face { font-family: "DM Sans"; src: url("{{ fonts.body_bold }}"); font-weight: 700; }
+  @font-face { font-family: "Fraunces"; src: url("{{ fonts.display }}"); font-weight: 600; }
+  @font-face { font-family: "Report Fallback"; src: url("{{ fonts.fallback }}"); }
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; background: #FBF8F2;
+          @bottom-left { content: "Favorites comparison · {{ meta.generated_at_local }} · Estimates, not guarantees"; font: 6.5pt "DM Sans", "Report Fallback"; color: #6E6758; }
+          @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 6.5pt "DM Sans", "Report Fallback"; color: #1F1F23; } }
+  html { font-family: "DM Sans", "Report Fallback", sans-serif; font-size: 9pt; line-height: 1.5; color: #1F1F23; }
+  h1, h2, h3 { font-family: "Fraunces", "Report Fallback", serif; color: #0E1A3B; font-weight: 600; }
+  h1 { font-size: 24pt; margin: 0 0 2mm; }
+  h2 { font-size: 16pt; margin: 0 0 1mm; border-top: 0.6pt solid #D8CFBE; padding-top: 3mm; }
+  h3 { font-size: 11pt; margin: 5mm 0 1.5mm; }
+  .place { break-before: page; }
+  .muted { color: #6E6758; }
+  table { width: 100%; border-collapse: collapse; margin: 2mm 0; font-size: 8pt; }
+  th, td { border-bottom: 0.4pt solid #D8CFBE; padding: 1.4mm 1.6mm; text-align: left; vertical-align: top; }
+  th { background: #EFE8DA; font-weight: 700; }
+  td.num, th.num { text-align: right; }
+  .go { color: #15803d; font-weight: 700; } .nogo { color: #b91c1c; font-weight: 700; }
+  .grid2 { display: flex; gap: 4mm; } .grid2 > div { flex: 1; }
+  .swot { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; }
+  .swot div { background: #fff; border: 0.4pt solid #D8CFBE; padding: 2mm 3mm; border-radius: 2mm; }
+  .swot h4 { margin: 0 0 1mm; font-size: 9pt; }
+  ul { margin: 0; padding-left: 4mm; }
+  img.map { width: 78mm; border: 0.4pt solid #D8CFBE; }
+  .warning { background: #fef3c7; border: 0.4pt solid #f59e0b; padding: 2mm 3mm; }
+</style>
+</head>
+<body>
+<h1>Favorites Comparison Report</h1>
+<p class="muted">{{ meta.count }} saved place{{ meta.count|pluralize }} · generated {{ meta.generated_at_local }} · reference {{ meta.reference }}<br>
+Each place is analysed within a 5 km radius with the platform's crowd heatmap, ML recommendation, Go/No-Go rules and revenue engine (OpenStreetMap data). Revenue figures are model estimates of gross sales, not guarantees.</p>
+
+<h3>Comparison of saved places</h3>
+<table>
+  <thead><tr><th>#</th><th>Place</th><th>Business tested</th><th>Crowd level</th><th class="num">Mapped places</th><th class="num">Est. revenue / month</th><th class="num">Potential</th><th class="num">Competitors ≤ 1 km</th><th>Verdict</th></tr></thead>
+  <tbody>
+  {% for r in comparison %}
+    {% if r.unavailable %}
+      <tr><td>—</td><td>{{ r.name }}</td><td colspan="7" class="muted">Data unavailable: {{ r.reason }}</td></tr>
+    {% else %}
+      <tr><td>{{ r.rank|default:"—" }}</td><td>{{ r.name }}</td><td>{{ r.business|default:"—" }}</td><td>{{ r.crowd|title }} ({{ r.density }}/km²)</td>
+          <td class="num">{{ r.places }}</td><td class="num">{{ r.monthly|inr }}</td><td class="num">{% if r.potential is not None %}{{ r.potential }}/100{% else %}—{% endif %}</td>
+          <td class="num">{% if r.competitors_1km is not None %}{{ r.competitors_1km }}{% else %}—{% endif %}</td>
+          <td class="{% if r.verdict == 'Go' %}go{% elif r.verdict == 'No-Go' %}nogo{% endif %}">{{ r.verdict }}</td></tr>
+    {% endif %}
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted">Rank orders the analysed places by the revenue engine's potential score.</p>
+
+{% for r in results %}
+<section class="place">
+  <h2>{{ forloop.counter }}. {{ r.place.name }}</h2>
+  <p class="muted">{% if r.place.address %}{{ r.place.address }} · {% endif %}{{ r.place.latitude|floatformat:5 }}, {{ r.place.longitude|floatformat:5 }} · saved category: {{ r.place.category|nice|default:"—" }}</p>
+  {% if r.status != 'ok' %}
+    <p class="warning">The analysis for this place is unavailable: {{ r.reason }}</p>
+  {% else %}
+  {% with s=r.s %}
+  <h3>Location and crowd density</h3>
+  <div class="grid2">
+    <div>
+      <p>Dominant crowd level: <strong>{{ s.heatmap.dominant|title }}</strong> ({{ s.heatmap.density_per_km2 }} mapped places per km² over 5 km).</p>
+      <table>
+        <tr><th>Sector level</th><th class="num">Sectors</th></tr>
+        <tr><td>High</td><td class="num">{{ s.heatmap.counts.high }}</td></tr>
+        <tr><td>Medium</td><td class="num">{{ s.heatmap.counts.medium }}</td></tr>
+        <tr><td>Low</td><td class="num">{{ s.heatmap.counts.low }}</td></tr>
+        <tr><td>Empty</td><td class="num">{{ s.heatmap.counts.empty }}</td></tr>
+      </table>
+      <p class="muted">{{ s.pois.in_radius }} mapped places within 5 km. ML model recommendation: {% if s.recommendation.status == 'ok' %}{{ s.recommendation.primary|nice }}{% else %}unavailable{% endif %}.</p>
+    </div>
+    <div>{% if r.map %}<img class="map" src="{{ r.map }}" alt="Heatmap of {{ r.place.name }}"><div class="muted">Server-drawn heatmap: dots are mapped places, circles the sector levels.</div>{% else %}<p class="muted">No mapped places to draw.</p>{% endif %}</div>
+  </div>
+
+  <h3>Popular places nearby</h3>
+  {% if r.popular %}
+  <table>
+    <thead><tr><th>Place</th><th>Type</th><th class="num">Distance</th><th class="num">Est. revenue / month</th><th class="num">Potential</th></tr></thead>
+    <tbody>{% for p in r.popular %}<tr><td>{{ p.name }}</td><td>{{ p.type|default:"—" }}</td><td class="num">{{ p.distance_km }} km</td><td class="num">{{ p.monthly|inr }}</td><td class="num">{{ p.potential|default:"—" }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">No named businesses were mapped nearby.</p>{% endif %}
+
+  <h3>Revenue estimate</h3>
+  {% if s.revenue.status == 'ok' %}
+  <p>For <strong>{{ s.revenue.business_type|nice }}</strong> the revenue engine estimates about <strong>{{ s.revenue.monthly|inr }}</strong> gross sales per month
+     (range {{ s.revenue.range.min|inr }} – {{ s.revenue.range.max|inr }}, potential score {{ s.revenue.potential_score }}/100, confidence {{ s.revenue.confidence_score }}/100){% if s.revenue.uses_default_assumptions %}; generic assumptions were used for this category{% endif %}.</p>
+  {% else %}<p class="muted">{{ s.revenue.reason }}</p>{% endif %}
+
+  <h3>Competitor analysis</h3>
+  {% if s.competition.status == 'ok' %}
+  <p>{{ s.competition.count }} same-category places within 5 km, {{ s.competition.within_1000_m }} within 1 km{% if s.competition.nearest_m %}, nearest {{ s.competition.nearest_m }} m away{% endif %}.</p>
+  {% if s.competition.list %}<table><thead><tr><th>Competitor</th><th>Type</th><th class="num">Distance</th></tr></thead><tbody>
+    {% for c in s.competition.list|slice:":6" %}<tr><td>{{ c.name }}</td><td>{{ c.type }}</td><td class="num">{{ c.distance_m }} m</td></tr>{% endfor %}</tbody></table>{% endif %}
+  {% else %}<p class="muted">{{ s.competition.reason }}</p>{% endif %}
+
+  <h3>Feasibility: {% if s.feasibility.status == 'ok' %}<span class="{% if s.feasibility.feasible %}go{% else %}nogo{% endif %}">{% if s.feasibility.feasible %}GO{% else %}NO-GO{% endif %}</span>{% else %}unavailable{% endif %}</h3>
+  {% if s.feasibility.status == 'ok' %}<p>{{ s.feasibility.message }}</p><ul>{% for reason in r.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>{% endif %}
+
+  <h3>SWOT</h3>
+  <div class="swot">
+    <div><h4>Strengths</h4><ul>{% for x in r.swot.strengths %}<li>{{ x }}</li>{% endfor %}</ul></div>
+    <div><h4>Weaknesses</h4><ul>{% for x in r.swot.weaknesses %}<li>{{ x }}</li>{% endfor %}</ul></div>
+    <div><h4>Opportunities</h4><ul>{% for x in r.swot.opportunities %}<li>{{ x }}</li>{% endfor %}</ul></div>
+    <div><h4>Threats</h4><ul>{% for x in r.swot.threats %}<li>{{ x }}</li>{% endfor %}</ul></div>
+  </div>
+
+  <h3>Key risks</h3>
+  <table><thead><tr><th>Risk</th><th>Likelihood × impact</th><th>Evidence</th><th>Mitigation</th></tr></thead><tbody>
+    {% for k in r.risks %}<tr><td>{{ k.risk }}</td><td>{{ k.likelihood|level_word }} × {{ k.impact|level_word }}</td><td>{{ k.evidence }}</td><td>{{ k.mitigation }}</td></tr>{% endfor %}
+  </tbody></table>
+  {% endwith %}
+  {% endif %}
+</section>
+{% endfor %}
+</body>
+</html>

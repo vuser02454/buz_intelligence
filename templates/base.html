@@ -16,11 +16,16 @@
         integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
         crossorigin="anonymous" referrerpolicy="no-referrer" />
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="{% static 'css/style.css' %}?v=3.3">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}?v=3.7">{% if request.resolver_match.url_name != 'login' and request.resolver_match.url_name != 'auth_callback' %}
+    <!-- Monochrome theme for the signed-in site; the sign-in page keeps its own look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter+Tight:wght@700;800&family=Inter:wght@300;400&family=IBM+Plex+Mono:wght@400&display=swap">
+    <link rel="stylesheet" href="{% static 'css/theme-mono.css' %}?v=4.1">{% endif %}
     {% block extra_css %}{% endblock %}
 </head>
 
-<body class="base-layout">
+<body class="base-layout{% if request.resolver_match.url_name != 'login' and request.resolver_match.url_name != 'auth_callback' %} theme-mono{% endif %}">
     <div id="bg-animation"></div>
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-base">
@@ -52,7 +57,7 @@
                         {% block nav_links %}{% endblock %}
                     </ul>
                     <div id="navbar-auth-section" class="ms-lg-2">
-                        <a href="{% url 'login' %}?next={{ request.path }}" class="btn btn-outline-light btn-sm px-3">
+                        <a href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-light btn-sm px-3">
                             <i class="fas fa-sign-in-alt me-1"></i>Sign In
                         </a>
                     </div>
@@ -86,25 +91,27 @@
         integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
         crossorigin="anonymous"></script>
 
-    <!-- Supabase JS Client & Auth Integration -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Supabase JS Client & Auth Integration (loaded once per page; pinned version) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
     <script>
         window.SUPABASE_CONFIG = {
             url: '{{ SUPABASE_URL|default:"https://ijsfmdgysmwovaighumv.supabase.co" }}',
-            key: '{{ SUPABASE_ANON_KEY|default:"sb_publishable_EdW1JxXZSkEA1uV4Yl4eIg_F9dvq-2h" }}'
+            key: '{{ SUPABASE_ANON_KEY|default:"sb_publishable_EdW1JxXZSkEA1uV4Yl4eIg_F9dvq-2h" }}',
+            siteUrl: '{{ SITE_URL|escapejs }}'
         };
     </script>
-    <script src="{% static 'js/supabase-auth.js' %}?v=2.3"></script>
-    <script src="{% static 'js/favorites.js' %}?v=1.1"></script>
+    <script src="{% static 'js/supabase-auth.js' %}?v=3.1"></script>
+    <script src="{% static 'js/favorites.js' %}?v=2.1"></script>
 
     {% block extra_js %}{% endblock %}
     <!-- Custom JS (after extra_js so Leaflet loads first on map pages) -->
-    <script src="{% static 'js/main.js' %}?v=3.4"></script>
-    <script src="{% static 'js/report-generator.js' %}?v=1.1"></script>
+    <script src="{% static 'js/synergy.js' %}?v=1.1"></script>
+    <script src="{% static 'js/main.js' %}?v=4.7"></script>
+    <script src="{% static 'js/report-generator.js' %}?v=2.4"></script>
 
     <!-- Three.js (for 3D Globe) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>{% if request.resolver_match.url_name == 'login' or request.resolver_match.url_name == 'auth_callback' %}
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const container = document.getElementById('bg-animation');
@@ -326,7 +333,7 @@
             }
             animate();
         });
-    </script>
+    </script>{% endif %}
     {% block extra_body %}{% endblock %}
 
     <!-- Form Modal -->
@@ -483,11 +490,8 @@
                     </div>
                     <h3 style="font-size: 1.35rem; font-weight: 700; color: #ffffff; margin-bottom: 4px;">Sign In to Continue</h3>
                     <p style="color: #94a3b8; font-size: 0.88rem; margin-bottom: 8px;">
-                        Access to <strong id="auth-gate-feature-name" style="color: #3ecf8e;">this feature</strong> requires Supabase Authentication.
+                        Please sign in to use <strong id="auth-gate-feature-name" style="color: #3ecf8e;">this feature</strong>.
                     </p>
-                    <span style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; background: rgba(62, 207, 142, 0.1); border: 1px solid rgba(62, 207, 142, 0.25); border-radius: 50px; color: #3ecf8e; font-size: 0.72rem; font-weight: 600;">
-                        <i class="fas fa-database"></i> Supabase Project DB Connected
-                    </span>
                 </div>
 
                 <div id="modal-auth-error" class="alert alert-danger py-2 px-3 small d-none" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; border-radius: 8px;"></div>
@@ -512,7 +516,7 @@
 
                     <div class="d-flex gap-2 mb-3">
                         <button type="submit" id="modal-login-btn" class="btn flex-fill" style="background: linear-gradient(135deg, #3ecf8e 0%, #10b981 100%); color: #0d1117; font-weight: 700; border-radius: 8px; padding: 10px; border: none; font-size: 0.92rem;">
-                            <i class="fas fa-sign-in-alt me-1"></i> Sign In & Unlock Feature
+                            <i class="fas fa-sign-in-alt me-1"></i> Sign In & Continue
                         </button>
                     </div>
                 </form>

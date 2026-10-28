@@ -82,7 +82,7 @@ class ReportAPITests(TestCase):
     def test_invalid_payloads(self):
         cases = [
             ({}, 400, 'no_location'),
-            (request_body(radius_m=5000), 400, 'invalid_radius'),
+            (request_body(radius_m=2000), 400, 'invalid_radius'),
             (request_body(location={'latitude': 'abc', 'longitude': 1}), 400, None),
             (request_body(heatmap=dict(request_body()['heatmap'], image='data:image/png;base64,AAAA')), 400, 'invalid_image'),
             (request_body(heatmap=dict(request_body()['heatmap'], analysed_lat=LAT + 0.05)), 409, 'heatmap_mismatch'),

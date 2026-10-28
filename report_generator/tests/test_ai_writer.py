@@ -11,7 +11,7 @@ from .fixtures import LAT, LON, NAME, fake_overpass
 
 def _snapshot():
     with fake_overpass():
-        return collect_analysis(LAT, LON, NAME, 2000, 'cafe')
+        return collect_analysis(LAT, LON, NAME, 5000, 'cafe')
 
 
 def _valid_outputs(snapshot):

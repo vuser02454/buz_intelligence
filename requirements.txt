@@ -30,6 +30,8 @@ supabase>=2.32.0
 weasyprint>=63.0
 pypdf>=5.0
 pillow>=10.0
+# Pure-Python PDF fallback when WeasyPrint's system libraries (Pango) are missing
+reportlab>=4.0
 
 # Static File Management
 whitenoise>=6.7.0

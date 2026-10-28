@@ -144,20 +144,78 @@ def predict_business(intensity, area_hint=None):
     return str(prediction[0])
 
 
-# Shared Overpass helper so we can gracefully handle temporary failures /
-# HTML responses and try secondary endpoints before failing.
-_OVERPASS_URLS = [
-    "https://overpass-api.de/api/interpreter",
-    "https://z.overpass-api.de/api/interpreter",
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
-]
-
-import logging
-from datetime import datetime, timezone
-from django.core.cache import cache
+# ---------------------------------------------------------------------------
+# Overpass (OpenStreetMap) access
+#
+# Public Overpass instances are often overloaded: the main instance answers
+# "at capacity" (502) instantly and others queue requests for 20-40 s. So:
+#   * one combined bbox query per area, with small [timeout]/[maxsize] so the
+#     dispatcher admits it sooner, and `qt` output (no id-sorted 350 cap, which
+#     returned a spatially biased subset);
+#   * hedged requests: the next mirror starts if the current one has not
+#     answered after a few seconds; retryable errors move on immediately and
+#     whole rounds are retried with backoff;
+#   * area results are cached persistently (CACHES['overpass']) by rounded
+#     lat/lng + radius: fresh for 6 h, kept 7 days and served, labelled as
+#     cached, when Overpass is unavailable;
+#   * fetch_area_pois() waits a bounded time; if the data is not there yet the
+#     fetch keeps running in the background and the caller gets status
+#     'pending' so the UI can show progress and retry. Nothing is invented: the
+#     old synthetic "fallback POIs" (always 100 of them) are gone.
+# ---------------------------------------------------------------------------
 import hashlib
+import logging
+import threading
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
+from concurrent.futures import wait as wait_futures
+from datetime import datetime, timezone
+
+from django.conf import settings
+from django.core.cache import cache, caches
+from django.core.cache.backends.base import InvalidCacheBackendError
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_OVERPASS_URLS = [
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://z.overpass-api.de/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+]
+_OVERPASS_URLS = list(getattr(settings, 'OVERPASS_URLS', None) or _DEFAULT_OVERPASS_URLS)
+_USER_AGENT = 'CrowdHeatmapApp/2.0 (Django Business Intelligence)'
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+HEDGE_AFTER_S = 4.0          # start the next mirror when the current one is this slow
+MAX_PARALLEL_MIRRORS = 3
+AREA_WAIT_S = float(getattr(settings, 'OVERPASS_WAIT_SECONDS', 18))   # per HTTP request
+AREA_FETCH_BUDGET_S = 75     # background fetch keeps trying this long
+AREA_FRESH_S = int(getattr(settings, 'OVERPASS_FRESH_SECONDS', 600))  # then served stale while refreshing
+AREA_KEEP_S = 7 * 24 * 3600
+_QUERY_CACHE_S = 900
+
+_http_pool = ThreadPoolExecutor(max_workers=12, thread_name_prefix='overpass-http')
+_area_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='overpass-area')
+_inflight = {}
+_inflight_lock = threading.Lock()
+
+# Amenity values that are street furniture, not businesses or footfall generators.
+_NOISE_AMENITIES = ('bench|waste_basket|waste_disposal|recycling|parking_space|parking_entrance|'
+                    'bicycle_parking|motorcycle_parking|toilets|drinking_water|shelter|telephone|'
+                    'post_box|vending_machine|clock|grave_yard|hunting_stand|fountain|water_point|'
+                    'letter_box|bbq|loading_dock|watering_place')
+_LEISURE = 'fitness_centre|sports_centre|stadium|swimming_pool|park|playground|water_park|dance|bowling_alley'
+
+
+def _area_cache():
+    try:
+        return caches['overpass']
+    except InvalidCacheBackendError:
+        return cache
+
 
 def _haversine_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate the great circle distance between two points in meters."""
@@ -170,191 +228,263 @@ def _haversine_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) ->
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return r * c
 
-def generate_fallback_spatial_pois(lat: float, lon: float, radius_m: int = 5000) -> dict:
-    """
-    Generate deterministic, geographically accurate fallback POIs for a 5 km radius
-    when external Overpass API endpoints fail, rate-limit, or time out.
-    Strictly marked as 'Estimated crowd density based on available signals'.
-    """
-    categories = [
-        ('Cafe & Roastery', 'amenity', 'cafe'),
-        ('Artisanal Bakery & Cafe', 'amenity', 'cafe'),
-        ('Casual Dining Bistro', 'amenity', 'restaurant'),
-        ('Express Fast Food', 'amenity', 'fast_food'),
-        ('Organic Supermarket', 'shop', 'supermarket'),
-        ('Neighborhood Pharmacy', 'amenity', 'pharmacy'),
-        ('Modern Co-working Hub', 'office', 'coworking'),
-        ('Fitness & Wellness Center', 'leisure', 'fitness_centre'),
-        ('Boutique Fashion Retail', 'shop', 'clothes'),
-        ('Metro / Transit Station', 'railway', 'station'),
-        ('Local Community Center', 'amenity', 'community_centre'),
-        ('Specialty Coffee House', 'amenity', 'cafe'),
-        ('Tech Hub / Shared Space', 'office', 'company'),
-        ('Health & Fitness Gym', 'leisure', 'gym'),
-        ('Fresh Food Mart', 'shop', 'convenience'),
-        ('Bookstore & Cafe', 'shop', 'books'),
-    ]
 
-    elements = []
-    # 9 sectors (3 rings x 3 angular wedges) distributed deterministically
-    rings = [radius_m * 0.25, radius_m * 0.55, radius_m * 0.85]
-    wedges = [30.0, 150.0, 270.0]
-
-    # Deterministic 100 POIs matching 100 active sensors baseline
-    # 36 in inner commercial ring (12/wedge), 33 in middle ring (11/wedge), 31 in outer ring (11, 10, 10)
-    sector_counts = [
-        [12, 12, 12],
-        [11, 11, 11],
-        [11, 10, 10],
-    ]
-
-    idx = 0
-    base_seed = int((abs(lat) * 1000 + abs(lon) * 1000)) % 100
-    for r_idx, r in enumerate(rings):
-        for w_idx, angle_deg in enumerate(wedges):
-            num_pois = sector_counts[r_idx][w_idx]
-            for sub_i in range(num_pois):
-                idx += 1
-                sub_angle = (angle_deg + (sub_i * (115.0 / max(1, num_pois))) + (base_seed % 17)) % 360
-                sub_r = min(radius_m * 0.94, max(220, r + ((sub_i - num_pois / 2.0) * (radius_m * 0.045))))
-                
-                # Geodetic delta in meters -> approx degrees
-                # 1 deg lat ~ 111,000 m; 1 deg lon ~ 111,000 * cos(lat)
-                dlat = (sub_r * math.cos(math.radians(sub_angle))) / 111000.0
-                cos_lat = max(0.2, math.cos(math.radians(lat)))
-                dlon = (sub_r * math.sin(math.radians(sub_angle))) / (111000.0 * cos_lat)
-                
-                p_lat = round(lat + dlat, 6)
-                p_lon = round(lon + dlon, 6)
-                
-                cat_info = categories[(idx + base_seed) % len(categories)]
-                name_prefix = cat_info[0]
-                tag_key = cat_info[1]
-                tag_val = cat_info[2]
-                
-                elements.append({
-                    'type': 'node',
-                    'id': 9000000 + idx,
-                    'lat': p_lat,
-                    'lon': p_lon,
-                    'tags': {
-                        'name': f"{name_prefix} #{idx}",
-                        tag_key: tag_val,
-                        'source': 'Estimated spatial signal model',
-                    },
-                    'is_live': False,
-                    'data_source': 'Estimated crowd density based on available signals',
-                    'data_quality': 'Signal-based estimate'
-                })
-
-    return {
-        'version': 0.6,
-        'generator': 'SpatialSignalFallbackEngine/1.0',
-        'is_live': False,
-        'data_source': 'Estimated crowd density based on available signals',
-        'data_quality': 'Signal-based estimate',
-        'elements': elements
-    }
-
-
-def _run_overpass_query(query: str, timeout: int = 5, lat: float = None, lon: float = None, radius: int = 5000):
-    """
-    Try one or more Overpass API endpoints and return parsed JSON data.
-    Returns (data, error_message). On success, error_message is None.
-    Uses multi-tier spatial grid caching (lat/lon to 3 decimal places ~100m)
-    to respond within <500ms on repeat requests.
-    Falls back gracefully to high-fidelity spatial signals if Overpass times out or rate limits.
-    """
-    # 1. Check cache first
-    if lat is not None and lon is not None:
-        grid_lat = round(float(lat), 3)
-        grid_lon = round(float(lon), 3)
-        cache_key = f"overpass_grid_{grid_lat}_{grid_lon}_{radius}"
-    else:
-        query_hash = hashlib.md5(query.encode('utf-8')).hexdigest()
-        cache_key = f"overpass_{query_hash}"
-
-    cached_data = cache.get(cache_key)
-    if cached_data:
-        logger.info("Overpass cache hit for key %s", cache_key)
-        return cached_data, None
-
-    # 2. Fetch from Overpass
-    last_error = None
-    headers = {'User-Agent': 'CrowdHeatmapApp/2.0 (Django Business Intelligence)'}
-    for url in _OVERPASS_URLS:
-        try:
-            start_t = datetime.now()
-            response = requests.post(
-                url, data={"data": query}, headers=headers, timeout=timeout
-            )
-            elapsed_ms = int((datetime.now() - start_t).total_seconds() * 1000)
-            logger.info("Overpass query to %s completed in %d ms", url, elapsed_ms)
-            
-            response.raise_for_status()
-            data = response.json()
-            if isinstance(data, dict) and data.get('remark'):
-                last_error = data.get('remark', 'Overpass API error')
-                continue
-            
-            # Enrich elements with live attribution
-            if isinstance(data, dict) and 'elements' in data:
-                for el in data['elements']:
-                    el['is_live'] = True
-                    el['data_source'] = 'Verified live OpenStreetMap'
-                    el['data_quality'] = 'Verified live'
-                data['is_live'] = True
-                data['data_source'] = 'Verified live OpenStreetMap'
-                data['data_quality'] = 'Verified live'
-
-            # Cache the successful result for 30 minutes
-            cache.set(cache_key, data, timeout=1800)
-            return data, None
-        except requests.exceptions.Timeout:
-            last_error = f'Overpass API timeout from {url}'
-            logger.warning(last_error)
-        except requests.exceptions.RequestException as exc:
-            last_error = f'Overpass request error from {url}: {exc}'
-            logger.warning(last_error)
-        except (ValueError, KeyError) as exc:
-            last_error = f'Invalid Overpass response from {url}: {exc}'
-            logger.warning(last_error)
-
-    # 3. Graceful Spatial Fallback when Overpass is slow/down
-    if lat is not None and lon is not None:
-        logger.info("Serving resilient spatial fallback POIs for [%f, %f]", lat, lon)
-        fallback_data = generate_fallback_spatial_pois(lat, lon, radius)
-        cache.set(cache_key, fallback_data, timeout=600)
-        return fallback_data, None
-
-    return None, last_error
+def _bbox(lat, lon, radius_m):
+    dlat = radius_m / 111320.0
+    dlon = radius_m / (111320.0 * max(0.2, math.cos(math.radians(lat))))
+    return lat - dlat, lon - dlon, lat + dlat, lon + dlon
 
 
 def _build_overpass_query(lat: float, lon: float, radius: int = 5000) -> str:
     """
-    Build high-performance Overpass QL targeting commercial, retail, hospitality,
-    transit, leisure, and office amenities within the analysis radius.
-    Omits raw building footprints and highway ways that trigger Overpass timeouts.
+    One Overpass QL request for the commercial features in the square around
+    the analysis circle (callers then keep only points within `radius`).
+    A bbox is much cheaper for Overpass than 14 `around:` filters, and the
+    small timeout/maxsize let busy servers admit the query sooner.
     """
-    return f"""[out:json][timeout:25];
+    s, w, n, e = _bbox(float(lat), float(lon), int(radius))
+    return f"""[out:json][timeout:25][maxsize:134217728][bbox:{s:.6f},{w:.6f},{n:.6f},{e:.6f}];
 (
-  node["amenity"](around:{radius},{lat},{lon});
-  way["amenity"](around:{radius},{lat},{lon});
-  node["shop"](around:{radius},{lat},{lon});
-  way["shop"](around:{radius},{lat},{lon});
-  node["tourism"](around:{radius},{lat},{lon});
-  way["tourism"](around:{radius},{lat},{lon});
-  node["leisure"](around:{radius},{lat},{lon});
-  way["leisure"](around:{radius},{lat},{lon});
-  node["office"](around:{radius},{lat},{lon});
-  way["office"](around:{radius},{lat},{lon});
-  node["public_transport"](around:{radius},{lat},{lon});
-  way["public_transport"](around:{radius},{lat},{lon});
-  node["railway"="station"](around:{radius},{lat},{lon});
-  node["highway"="bus_stop"](around:{radius},{lat},{lon});
+  nwr["amenity"]["amenity"!~"^({_NOISE_AMENITIES})$"];
+  nwr["shop"];
+  nwr["tourism"];
+  nwr["office"];
+  nwr["leisure"~"^({_LEISURE})$"];
+  node["railway"="station"];
+  node["public_transport"="station"];
+  node["highway"="bus_stop"];
 );
-out center 350;
+out center tags qt;
 """
+
+
+def _post_overpass(url, query, timeout):
+    """One HTTP request. Returns (data, error, retryable)."""
+    started = time.monotonic()
+    try:
+        resp = requests.post(url, data={'data': query}, headers={'User-Agent': _USER_AGENT}, timeout=timeout)
+    except requests.exceptions.Timeout:
+        return None, f'Overpass timeout from {url}', True
+    except requests.exceptions.RequestException as exc:
+        return None, f'Overpass request error from {url}: {exc}', True
+    elapsed = time.monotonic() - started
+    if resp.status_code != 200:
+        logger.warning('Overpass %s answered %s in %.1fs', url, resp.status_code, elapsed)
+        return None, f'Overpass {url} answered HTTP {resp.status_code}', resp.status_code in _RETRYABLE_STATUS
+    try:
+        data = resp.json()
+    except ValueError:
+        return None, f'Invalid Overpass response from {url}', True
+    if not isinstance(data, dict) or not isinstance(data.get('elements'), list):
+        return None, f'Invalid Overpass response from {url}', True
+    remark = str(data.get('remark') or '')
+    if 'error' in remark.lower() or 'timed out' in remark.lower():
+        # Partial result (the server gave up half way): not usable for counts.
+        return None, f'Overpass {url}: {remark[:160]}', True
+    logger.info('Overpass %s: %d elements in %.1fs', url, len(data['elements']), elapsed)
+    return data, None, False
+
+
+def _run_overpass_query(query: str, timeout: int = 25, lat: float = None, lon: float = None, radius: int = None):
+    """
+    Run `query` against the Overpass mirrors and return (data, error_message).
+
+    Mirrors are hedged: a request starts on the first mirror, the next one is
+    added if no answer arrived within HEDGE_AFTER_S (at most
+    MAX_PARALLEL_MIRRORS at once), and a mirror that fails fast hands over
+    immediately. After a full round of failures the round is retried with
+    backoff while `timeout` seconds remain. Successful results are cached for
+    15 minutes by query text. `lat`/`lon`/`radius` are accepted for backwards
+    compatibility; area caching lives in fetch_area_pois().
+    """
+    cache_key = 'overpass_q_' + hashlib.md5(query.encode('utf-8')).hexdigest()
+    cached = cache.get(cache_key)
+    if cached:
+        return cached, None
+
+    deadline = time.monotonic() + max(1.0, float(timeout))
+    last_error = 'Overpass API is unavailable'
+    backoff = 1.0
+    while time.monotonic() < deadline:
+        queue = list(_OVERPASS_URLS)
+        running = {}
+        round_retryable = False
+        while (queue or running) and time.monotonic() < deadline:
+            while queue and len(running) < MAX_PARALLEL_MIRRORS and (not running or _all_slow(running)):
+                url = queue.pop(0)
+                per_request = max(1.0, min(40.0, deadline - time.monotonic()))
+                running[_http_pool.submit(_post_overpass, url, query, per_request)] = time.monotonic()
+            remaining = deadline - time.monotonic()
+            done, _ = wait_futures(list(running), timeout=max(0.05, min(HEDGE_AFTER_S, remaining)),
+                                   return_when=FIRST_COMPLETED)
+            for fut in done:
+                running.pop(fut, None)
+                data, error, retryable = fut.result()
+                if data is not None:
+                    data['is_live'] = True
+                    data['data_source'] = 'Verified live OpenStreetMap'
+                    data['data_quality'] = 'Verified live'
+                    cache.set(cache_key, data, timeout=_QUERY_CACHE_S)
+                    return data, None
+                last_error = error
+                round_retryable = round_retryable or retryable
+        if not round_retryable:
+            break
+        sleep_for = min(backoff, deadline - time.monotonic())
+        if sleep_for <= 0:
+            break
+        time.sleep(sleep_for)
+        backoff = min(backoff * 2, 8.0)
+    return None, last_error
+
+
+def _all_slow(running):
+    now = time.monotonic()
+    return all(now - started >= HEDGE_AFTER_S for started in running.values())
+
+
+def _area_key(lat, lon, radius):
+    return f'area_pois:v2:{round(float(lat), 3)}:{round(float(lon), 3)}:{int(radius)}'
+
+
+def _fetch_area(key, lat, lon, radius):
+    try:
+        data, error = _run_overpass_query(_build_overpass_query(lat, lon, radius), timeout=AREA_FETCH_BUDGET_S)
+        if data is not None:
+            entry = {'elements': data.get('elements', []), 'fetched_at': time.time()}
+            _area_cache().set(key, entry, timeout=AREA_KEEP_S)
+            return entry, None
+        return None, error
+    finally:
+        with _inflight_lock:
+            _inflight.pop(key, None)
+
+
+def fetch_area_pois(lat, lon, radius_m=None, wait_s=None):
+    """
+    POIs around (lat, lon) for the analysis radius, from cache or Overpass.
+
+    Returns a dict:
+      status       'ok' | 'pending' | 'error'
+      elements     list of Overpass elements (status 'ok' only)
+      is_live      True for data fetched from Overpass (now or from cache)
+      stale        True when Overpass failed and an older cached copy is served
+      fetched_at   ISO time the data was retrieved from OpenStreetMap
+      cache        'hit' | 'miss' | 'stale'
+      error, retry_after (seconds) for 'pending' / 'error'
+    """
+    radius_m = int(radius_m or HEATMAP_RADIUS_M)
+    wait_s = AREA_WAIT_S if wait_s is None else wait_s
+    key = _area_key(lat, lon, radius_m)
+    store = _area_cache()
+    cached = store.get(key)
+    age = time.time() - cached['fetched_at'] if cached else None
+    if cached and age < AREA_FRESH_S:
+        return _area_ok(cached, 'hit')
+
+    with _inflight_lock:
+        fut = _inflight.get(key)
+        if fut is None:
+            fut = _area_pool.submit(_fetch_area, key, float(lat), float(lon), radius_m)
+            _inflight[key] = fut
+    if cached:
+        # Stale-while-revalidate: answer instantly from the older copy (OpenStreetMap
+        # changes slowly); the refresh started above replaces it for the next request.
+        return _area_ok(cached, 'refreshing')
+    try:
+        entry, error = fut.result(timeout=wait_s)
+    except FutureTimeout:
+        if cached:
+            return _area_ok(cached, 'stale')
+        return {'status': 'pending', 'retry_after': 4,
+                'error': 'OpenStreetMap (Overpass) is responding slowly. Still fetching the area data…'}
+    if entry is not None:
+        return _area_ok(entry, 'miss')
+    if cached:
+        return _area_ok(cached, 'stale')
+    return {'status': 'error', 'retry_after': 15,
+            'error': 'OpenStreetMap data could not be retrieved right now (all Overpass servers are busy). '
+                     'Please retry in a minute.', 'detail': error}
+
+
+def area_cache_status(lat, lon, radius_m=None):
+    """
+    Whether the area analysis for (lat, lon) is already cached – read only, never fetches.
+    'fresh' (served instantly), 'stale' (served instantly and refreshed in the background
+    on the next analysis) or 'none' (the next analysis fetches it from Overpass).
+    """
+    entry = _area_cache().get(_area_key(lat, lon, radius_m or HEATMAP_RADIUS_M))
+    if not entry:
+        return {'status': 'none'}
+    age = time.time() - entry['fetched_at']
+    return {'status': 'fresh' if age < AREA_FRESH_S else 'stale',
+            'fetched_at': datetime.fromtimestamp(entry['fetched_at'], tz=timezone.utc).isoformat(timespec='seconds'),
+            'places': len(entry['elements'])}
+
+
+def _area_ok(entry, how):
+    fetched = datetime.fromtimestamp(entry['fetched_at'], tz=timezone.utc)
+    return {
+        'status': 'ok',
+        'elements': entry['elements'],
+        'is_live': True,
+        'stale': how == 'stale',
+        'refreshing': how == 'refreshing',
+        'cache': how,
+        'fetched_at': fetched.isoformat(timespec='seconds'),
+        'data_source': 'OpenStreetMap (Overpass API)' + {'stale': ' – cached copy, live refresh failed',
+                                                         'refreshing': ' – cached copy, refreshing in the background'}.get(how, ''),
+    }
+
+
+def sample_places_across_sectors(elements, lat, lon, radius_m, limit=30):
+    """
+    Up to `limit` named businesses spread over the whole analysis circle:
+    round-robin over the 9 sectors, nearest first inside each sector. (Taking
+    the first N in Overpass order put every marker in one corner of the map.)
+    """
+    buckets = {}
+    for el in elements:
+        tags = el.get('tags') or {}
+        if not tags.get('name') or not (tags.get('amenity') or tags.get('shop') or tags.get('tourism')):
+            continue
+        e_lat = el.get('lat') or (el.get('center') or {}).get('lat')
+        e_lon = el.get('lon') or (el.get('center') or {}).get('lon')
+        if e_lat is None or e_lon is None:
+            continue
+        dist = el.get('distance_m')
+        if dist is None:
+            dist = _haversine_distance_m(lat, lon, float(e_lat), float(e_lon))
+        if dist > radius_m:
+            continue
+        ring = min(int(dist / (radius_m / 3.0)), 2)
+        wedge = int((math.degrees(math.atan2(float(e_lat) - lat, float(e_lon) - lon)) + 180) / 120) % 3
+        buckets.setdefault(f'{ring}_{wedge}', []).append((dist, el))
+    for items in buckets.values():
+        items.sort(key=lambda pair: pair[0])
+    picked = []
+    queues = [buckets[k] for k in sorted(buckets)]
+    while len(picked) < limit and any(queues):
+        for q in queues:
+            if q and len(picked) < limit:
+                picked.append(q.pop(0)[1])
+    return picked
+
+
+def elements_within(elements, lat, lon, radius_m):
+    """Elements with coordinates inside the circle, each with `distance_m` added."""
+    out = []
+    for el in elements or []:
+        e_lat = el.get('lat') or (el.get('center') or {}).get('lat')
+        e_lon = el.get('lon') or (el.get('center') or {}).get('lon')
+        if e_lat is None or e_lon is None:
+            continue
+        dist = _haversine_distance_m(lat, lon, float(e_lat), float(e_lon))
+        if dist <= radius_m:
+            item = dict(el)
+            item['distance_m'] = round(dist, 1)
+            out.append(item)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -362,8 +492,11 @@ out center 350;
 # ---------------------------------------------------------------------------
 
 HEATMAP_RADIUS_M = 5000
-HIGH_SECTOR_MIN_POIS = 8
-MEDIUM_SECTOR_MIN_POIS = 4
+# Sector levels are thresholds on mapped-feature *density*. Raw counts made
+# every sector of a real city "High" (thousands of features in 5 km) and
+# favoured the outer ring, whose sectors are 5x larger than the inner ones.
+HIGH_DENSITY_PER_KM2 = 60
+MEDIUM_DENSITY_PER_KM2 = 25
 
 _REASONING = {
     'high': 'High foot traffic in commercial area — ideal for food, retail, and services.',
@@ -424,67 +557,59 @@ def _group_into_sectors(elements, lat, lon, radius_m, with_details=False):
     return sectors
 
 
-def _intensity_for_count(count):
-    if count >= HIGH_SECTOR_MIN_POIS:
+def sector_area_km2(sector_key, radius_m):
+    """Area of one of the 9 sectors (a third of a ring) in km²."""
+    ring = min(int(str(sector_key).split('_')[0]), 2)
+    step = radius_m / 3.0
+    return math.pi * (((ring + 1) * step) ** 2 - (ring * step) ** 2) / 3.0 / 1e6
+
+
+def intensity_for_density(per_km2):
+    if per_km2 >= HIGH_DENSITY_PER_KM2:
         return 'high'
-    if count >= MEDIUM_SECTOR_MIN_POIS:
+    if per_km2 >= MEDIUM_DENSITY_PER_KM2:
         return 'medium'
     return 'low'
 
 
 def classify_sectors(elements, lat, lon, radius_m=HEATMAP_RADIUS_M):
     """
-    Heatmap classification used by /analyze-crowd-intensity/.
+    Heatmap classification used by /analyze-crowd-intensity/ and the reports.
 
-    Returns a dict with the three area lists in the endpoint's response shape,
-    the dominant intensity, and `placeholder_used` — True when no POI had
-    coordinates and a single synthetic "high" area was put at the centre
-    (the map still needs something to draw; it is not a measurement).
+    Each of the 9 sectors is classified by its density of mapped features.
+    Returns the three area lists in the endpoint's response shape, the dominant
+    intensity (from the density of the whole circle) and `placeholder_used`,
+    which is True when no feature with coordinates was found: then nothing is
+    drawn (no synthetic area is invented any more).
     """
     sectors = _group_into_sectors(elements, lat, lon, radius_m, with_details=True)
 
-    counts = [len(pois) for pois in sectors.values()] if sectors else []
-    max_count = max(counts) if counts else 0
-    high_cut = HIGH_SECTOR_MIN_POIS if max_count >= HIGH_SECTOR_MIN_POIS else max(3, int(max_count * 0.7))
-    med_cut = MEDIUM_SECTOR_MIN_POIS if max_count >= HIGH_SECTOR_MIN_POIS else max(2, int(max_count * 0.4))
-
     areas = {'high': [], 'medium': [], 'low': []}
-    for sector_key, pois in sectors.items():
+    total = 0
+    for sector_key, pois in sorted(sectors.items()):
         count = len(pois)
-        # Calculate center of sector
-        avg_lat = sum(p['lat'] for p in pois) / count
-        avg_lon = sum(p['lon'] for p in pois) / count
-        if count >= high_cut:
-            cat = 'high'
-        elif count >= med_cut:
-            cat = 'medium'
-        else:
-            cat = 'low'
-        areas[cat].append({
-            'latitude': avg_lat,
-            'longitude': avg_lon,
+        total += count
+        area_km2 = sector_area_km2(sector_key, radius_m)
+        density = count / area_km2 if area_km2 else 0
+        areas[intensity_for_density(density)].append({
+            'latitude': sum(p['lat'] for p in pois) / count,
+            'longitude': sum(p['lon'] for p in pois) / count,
             'count': count,
-            'sector': sector_key
+            'sector': sector_key,
+            'area_km2': round(area_km2, 2),
+            'density_per_km2': round(density, 1),
         })
 
-    placeholder_used = False
-    # If no sectors found, create default areas based on distance
-    if not areas['high'] and not areas['medium'] and not areas['low']:
-        areas['high'] = [{'latitude': lat, 'longitude': lon, 'count': len(elements), 'sector': 'center'}]
-        placeholder_used = True
-
-    dominant = 'low'
-    if areas['high']:
-        dominant = 'high'
-    elif areas['medium']:
-        dominant = 'medium'
-
+    circle_km2 = math.pi * (radius_m / 1000.0) ** 2
+    overall = total / circle_km2 if circle_km2 else 0
     return {
         'high': areas['high'],
         'medium': areas['medium'],
         'low': areas['low'],
-        'dominant': dominant,
-        'placeholder_used': placeholder_used,
+        'dominant': intensity_for_density(overall) if total else 'low',
+        'density_per_km2': round(overall, 1),
+        'total_in_radius': total,
+        'placeholder_used': total == 0,
     }
 
 
@@ -567,8 +692,8 @@ def evaluate_feasibility(elements, lat, lon, business_type):
             found_count += 1
 
     high_c, medium_c, low_c = 0, 0, 0
-    for pois in sectors.values():
-        level = _intensity_for_count(len(pois))
+    for key, pois in sectors.items():
+        level = intensity_for_density(len(pois) / sector_area_km2(key, 2000))
         if level == 'high':
             high_c += 1
         elif level == 'medium':
@@ -638,162 +763,269 @@ def evaluate_feasibility(elements, lat, lon, business_type):
     }
 
 
-def generate_location_business_recommendations(lat: float, lon: float, radius_m: int = 5000, location_name: str = 'Selected Location', elements: list = None) -> list:
+def feasibility_elements(elements):
+    """Features the feasibility rules look at: those with an amenity, shop or tourism tag."""
+    return [el for el in elements if any(k in (el.get('tags') or {}) for k in ('amenity', 'shop', 'tourism'))]
+
+
+def feasibility_reasons(verdict):
+    """Plain-language reasons behind evaluate_feasibility()'s Go/No-Go decision."""
+    ev = verdict.get('evidence') or {}
+    counts = ev.get('sector_counts') or {}
+    reasons = [f"Dominant crowd level within 2 km: {verdict.get('dominant_intensity', 'unknown')} "
+               f"({counts.get('high', 0)} high, {counts.get('medium', 0)} medium, {counts.get('low', 0)} low-density sectors)."]
+    found = ev.get('similar_businesses_found', 0)
+    reasons.append(f"{found} similar business{'es' if found != 1 else ''} already mapped within 2 km"
+                   + (' – proven local demand.' if ev.get('local_proof') else '.'))
+    if ev.get('in_dataset_for_intensity'):
+        reasons.append('The category is typical for this crowd level in the training data.')
+    if ev.get('matches_ml_recommendation'):
+        reasons.append('It matches the ML model\'s top recommendation for this area.')
+    if ev.get('high_intensity_retail_rule'):
+        reasons.append('High-footfall area: retail and food formats are generally viable.')
+    if not verdict.get('feasible'):
+        reasons.append(f"Suggested alternative: {str(verdict.get('recommended_business', '')).replace('_', ' ')}.")
+    return reasons
+
+
+# Rough set-up cost (INR), operating-cost share of revenue, icon and the OSM
+# tag values that count as competitors. Used to turn the revenue engine's
+# gross-sales estimate into profit and break-even; unknown categories get the
+# generic row. These are planning assumptions and are labelled as such.
+_REC_DEFAULT = (1_500_000, 0.65, 'fas fa-store', None)
+_REC_CATALOG = {
+    'cafe': (1_500_000, 0.60, 'fas fa-coffee', ('cafe',)),
+    'coffee_shop': (1_500_000, 0.60, 'fas fa-coffee', ('cafe',)),
+    'restaurant': (3_000_000, 0.65, 'fas fa-utensils', ('restaurant',)),
+    'fast_food': (1_200_000, 0.62, 'fas fa-hamburger', ('fast_food',)),
+    'food_court': (2_000_000, 0.62, 'fas fa-utensils', ('food_court', 'fast_food')),
+    'street_food_stall': (300_000, 0.55, 'fas fa-hotdog', ('fast_food',)),
+    'tiffin_service': (400_000, 0.60, 'fas fa-utensils', ('fast_food', 'restaurant')),
+    'juice_bar': (500_000, 0.55, 'fas fa-glass-whiskey', ('juice', 'cafe')),
+    'ice_cream_parlour': (700_000, 0.58, 'fas fa-ice-cream', ('ice_cream',)),
+    'bakery': (1_000_000, 0.60, 'fas fa-bread-slice', ('bakery',)),
+    'sweet_shop': (1_000_000, 0.62, 'fas fa-cookie', ('confectionery', 'pastry', 'bakery')),
+    'supermarket': (4_000_000, 0.80, 'fas fa-shopping-basket', ('supermarket', 'convenience')),
+    'grocery_store': (1_000_000, 0.82, 'fas fa-shopping-basket', ('convenience', 'supermarket', 'greengrocer')),
+    'vegetable_shop': (300_000, 0.80, 'fas fa-carrot', ('greengrocer',)),
+    'fruit_shop': (300_000, 0.80, 'fas fa-apple-alt', ('greengrocer',)),
+    'milk_booth': (200_000, 0.85, 'fas fa-glass-whiskey', ('dairy',)),
+    'pharmacy': (1_200_000, 0.75, 'fas fa-prescription-bottle-alt', ('pharmacy', 'chemist')),
+    'medical_store': (1_200_000, 0.75, 'fas fa-prescription-bottle-alt', ('pharmacy', 'chemist')),
+    'optical_store': (1_000_000, 0.65, 'fas fa-glasses', ('optician',)),
+    'gym': (2_500_000, 0.55, 'fas fa-dumbbell', ('fitness_centre', 'gym', 'sports_centre')),
+    'salon': (800_000, 0.55, 'fas fa-cut', ('hairdresser', 'beauty')),
+    'laundry_service': (600_000, 0.60, 'fas fa-tshirt', ('laundry', 'dry_cleaning')),
+    'tailoring_shop': (300_000, 0.55, 'fas fa-cut', ('tailor',)),
+    'clothing_store': (1_500_000, 0.70, 'fas fa-tshirt', ('clothes', 'boutique')),
+    'clothing_boutique': (1_500_000, 0.70, 'fas fa-tshirt', ('clothes', 'boutique')),
+    'footwear_store': (1_200_000, 0.72, 'fas fa-shoe-prints', ('shoes',)),
+    'mobile_shop': (800_000, 0.82, 'fas fa-mobile-alt', ('mobile_phone', 'electronics')),
+    'electronics_store': (2_500_000, 0.82, 'fas fa-tv', ('electronics', 'computer')),
+    'hardware_store': (1_500_000, 0.78, 'fas fa-tools', ('hardware', 'doityourself')),
+    'stationery_shop': (400_000, 0.75, 'fas fa-pen', ('stationery',)),
+    'book_store': (800_000, 0.75, 'fas fa-book', ('books',)),
+    'jewellery_store': (5_000_000, 0.85, 'fas fa-gem', ('jewelry',)),
+    'cosmetics_store': (1_000_000, 0.72, 'fas fa-spa', ('cosmetics', 'beauty')),
+    'pet_shop': (800_000, 0.70, 'fas fa-paw', ('pet',)),
+    'coaching_centre': (1_000_000, 0.55, 'fas fa-chalkboard-teacher', ('school', 'college', 'training')),
+    'tuition_centre': (500_000, 0.50, 'fas fa-chalkboard-teacher', ('school', 'training')),
+    'auto_repair_shop': (1_000_000, 0.60, 'fas fa-car', ('car_repair',)),
+    'cycle_repair': (150_000, 0.50, 'fas fa-bicycle', ('bicycle',)),
+    'spare_parts_shop': (1_000_000, 0.80, 'fas fa-cogs', ('car_parts',)),
+}
+_ENGINE_ALIASES = {'coffee_shop': 'cafe', 'medical_store': 'pharmacy', 'grocery_store': 'supermarket',
+                   'street_food_stall': 'fast_food', 'tiffin_service': 'fast_food', 'food_court': 'restaurant'}
+
+
+def _poi_type(tags):
+    return (tags.get('amenity') or tags.get('shop') or tags.get('leisure') or tags.get('office') or '').lower()
+
+
+def _rec_key(name):
+    return str(name or '').strip().lower().replace('-', ' ').replace(' ', '_')
+
+
+def recommendation_candidates(dominant, elements):
     """
-    Generate ranked, location-specific business opportunities for the selected coordinates
-    and 5 km radius based on actual spatial evidence, footfall signals, and category gaps.
+    Candidate businesses: the ML model's primary + alternatives (weighted),
+    the CSV categories for this crowd level, and every category the revenue
+    engine models. Returns [(display_name, ml_role, preferred_level)].
     """
+    out, seen = [], set()
+
+    def add(name, role, level):
+        key = _rec_key(name)
+        if key and key not in seen and key not in ('default', 'shop'):
+            seen.add(key)
+            out.append((str(name).replace('_', ' ').title() if name.islower() else str(name), role, level))
+
+    try:
+        pred = build_business_prediction(dominant, elements)
+    except Exception:
+        logger.exception('ML prediction failed for recommendations')
+        pred = None
+    if pred:
+        add(pred['primary'], 'primary', dominant)
+        for alt in pred.get('alternatives') or []:
+            add(alt['business'], 'alternative', alt.get('intensity', dominant))
+        for choice in pred.get('choices') or []:
+            add(choice, 'choice', dominant)
+    from .prediction_engine.config import BUSINESS_METRICS
+    for key in BUSINESS_METRICS:
+        add(key, 'engine', dominant)
+    return out
+
+
+def generate_location_business_recommendations(lat: float, lon: float, radius_m: int = 5000,
+                                               location_name: str = 'Selected Location', elements: list = None,
+                                               category: str = None, limit: int = 5) -> list:
+    """Top recommendations only (see recommend_businesses)."""
+    return recommend_businesses(lat, lon, radius_m, location_name, elements, category, limit)['recommendations']
+
+
+def recommend_businesses(lat: float, lon: float, radius_m: int = 5000, location_name: str = 'Selected Location',
+                         elements: list = None, category: str = None, limit: int = 5) -> dict:
+    """
+    Top business opportunities for the 5 km circle around (lat, lon), from the
+    area's real data: the ML model proposes candidates, each is placed in the
+    sector that best suits it (its crowd level, fewest same-category places
+    within 1 km), and the revenue engine estimates gross sales there. Profit
+    and break-even use the planning assumptions in _REC_CATALOG.
+    `category` limits the result to one business category.
+
+    Every candidate also gets a Business Synergy analysis at its spot (how nearby
+    businesses and surroundings could help it). The ranking itself is unchanged;
+    `comparison` names the best pick by the existing model, by synergy, and overall.
+    """
+    from . import synergy, utils
+    from .prediction_engine.config import BUSINESS_METRICS
+
+    empty = {'recommendations': [], 'comparison': None}
     if elements is None:
-        query = _build_overpass_query(lat, lon, radius_m)
-        data, _ = _run_overpass_query(query, timeout=15, lat=lat, lon=lon, radius=radius_m)
-        elements = data.get('elements', []) if data else []
+        fetched = fetch_area_pois(lat, lon, radius_m)
+        if fetched['status'] != 'ok':
+            return empty
+        elements = elements_within(fetched['elements'], lat, lon, radius_m)
+    if not elements:
+        return empty
 
-    # Count categories in local area
-    type_counts = {}
-    named_pois = []
-    for el in elements:
-        tags = el.get('tags') or {}
-        t = tags.get('amenity') or tags.get('shop') or tags.get('leisure') or tags.get('office') or ''
-        if t:
-            type_counts[t] = type_counts.get(t, 0) + 1
-        name = tags.get('name')
-        if name and (el.get('lat') or el.get('center')):
-            e_lat = el.get('lat') or el.get('center', {}).get('lat')
-            e_lon = el.get('lon') or el.get('center', {}).get('lon')
-            named_pois.append((name, float(e_lat), float(e_lon), t))
-
-    total_pois = len(elements)
     grid = classify_sectors(elements, lat, lon, radius_m)
-    dominant_intensity = grid.get('dominant', 'medium')
+    sectors = [dict(area, level=level) for level in ('high', 'medium', 'low') for area in grid[level]]
+    if not sectors:
+        return empty
+    synergy_area = synergy.AreaSynergy(elements)
+    # Place types within 1 km of each sector centre (for competition), computed once.
+    typed = [(float(el.get('lat') or el['center']['lat']), float(el.get('lon') or el['center']['lon']), _poi_type(el.get('tags') or {}))
+             for el in elements if (el.get('lat') or el.get('center')) and _poi_type(el.get('tags') or {})]
+    for sec in sectors:
+        sec['nearby_types'] = [t for (a, b, t) in typed if _haversine_distance_m(sec['latitude'], sec['longitude'], a, b) <= 1000]
 
-    # Base multiplier from dominant intensity and local density
-    intensity_mult = 1.35 if dominant_intensity == 'high' else (1.0 if dominant_intensity == 'medium' else 0.75)
-    density_factor = min(1.5, max(0.6, total_pois / 40.0))
+    clean_loc = (location_name or 'Selected Area').split(',')[0].strip()
+    wanted = _rec_key(category) if category else None
+    scored = []
+    for name, role, level in recommendation_candidates(grid['dominant'], elements):
+        key = _rec_key(name)
+        if wanted and wanted != key and wanted not in key:
+            continue
+        setup_cost, opex_ratio, icon, osm_keys = _REC_CATALOG.get(key, _REC_DEFAULT)
+        osm_keys = osm_keys or (key,)
+        comp_count = lambda sec: sum(1 for t in sec['nearby_types'] if t in osm_keys)
+        pool = [s for s in sectors if s['level'] == level] or sectors
+        best = min(pool, key=lambda s: (comp_count(s), -s.get('density_per_km2', 0)))
+        competitors = comp_count(best)
+        competitors_area = sum(1 for (_a, _b, t) in typed if t in osm_keys)
 
-    # Clean location name
-    clean_loc = location_name.split(',')[0].strip() if location_name else 'Selected Area'
-
-    # Opportunity Templates customized with local coordinate targets
-    # Distribute target coordinates within the 5km trading zone
-    coord_offsets = [
-        (0.0055, 0.0042),   # ~650m NE
-        (-0.0062, 0.0051),  # ~750m SE
-        (0.0048, -0.0075),  # ~850m NW
-        (-0.0078, -0.0065), # ~1.1km SW
-        (0.0095, 0.0015),   # ~1.0km N
-    ]
-
-    opportunity_archetypes = [
-        {
-            'category': 'cafe',
-            'base_name': f"Artisan Specialty Cafe & Roastery",
-            'badge': 'High Daily Footfall',
-            'icon': 'fas fa-coffee',
-            'base_rev': 78000,
-            'cost_ratio': 0.58,
-            'poi_key': 'cafe',
-            'alt_keys': ['restaurant', 'bakery'],
-            'focus': 'Breakfast & Evening Social Hours'
-        },
-        {
-            'category': 'fitness_center',
-            'base_name': f"High-Performance Gym & Wellness Studio",
-            'badge': 'Recurring Subscriptions',
-            'icon': 'fas fa-dumbbell',
-            'base_rev': 115000,
-            'cost_ratio': 0.52,
-            'poi_key': 'fitness_centre',
-            'alt_keys': ['gym', 'sports_centre'],
-            'focus': 'Morning & Post-Work Peak Sessions'
-        },
-        {
-            'category': 'coworking_space',
-            'base_name': f"Executive Co-working Lounge & Hotdesks",
-            'badge': 'High B2B Demand',
-            'icon': 'fas fa-briefcase',
-            'base_rev': 95000,
-            'cost_ratio': 0.60,
-            'poi_key': 'coworking',
-            'alt_keys': ['office', 'company'],
-            'focus': 'Daytime Weekday Productivity'
-        },
-        {
-            'category': 'supermarket',
-            'base_name': f"Fresh Grocer & Daily Convenience Mart",
-            'badge': 'Essential Retail',
-            'icon': 'fas fa-shopping-basket',
-            'base_rev': 140000,
-            'cost_ratio': 0.68,
-            'poi_key': 'supermarket',
-            'alt_keys': ['convenience', 'grocery'],
-            'focus': 'Consistent All-Day Basket Size'
-        },
-        {
-            'category': 'restaurant',
-            'base_name': f"Artisanal Casual Dining & Bistro",
-            'badge': 'High Margin Dining',
-            'icon': 'fas fa-utensils',
-            'base_rev': 125000,
-            'cost_ratio': 0.62,
-            'poi_key': 'restaurant',
-            'alt_keys': ['fast_food', 'bar'],
-            'focus': 'Lunch Spikes & Weekend Evenings'
-        }
-    ]
-
-    recommendations = []
-    now_iso = datetime.now(timezone.utc).isoformat()
-
-    for i, arch in enumerate(opportunity_archetypes):
-        dlat, dlon = coord_offsets[i % len(coord_offsets)]
-        target_lat = round(lat + dlat, 6)
-        target_lon = round(lon + dlon, 6)
-
-        # Competition & demand evaluation from real local counts
-        direct_comp = type_counts.get(arch['poi_key'], 0)
-        related_comp = sum(type_counts.get(k, 0) for k in arch['alt_keys'])
-        
-        comp_level = 'Low' if direct_comp <= 1 else ('Moderate' if direct_comp <= 4 else 'High')
-        comp_penalty = 1.05 if direct_comp == 0 else (0.95 if direct_comp <= 3 else 0.82)
-        
-        # Calculate transparent revenue, costs, and profit
-        local_rev = int(arch['base_rev'] * intensity_mult * density_factor * comp_penalty)
-        # Ensure round, realistic thousands
-        local_rev = round(local_rev / 1000) * 1000
-        costs = int(local_rev * arch['cost_ratio'])
-        profit = local_rev - costs
-
-        demand = 'Very High' if dominant_intensity == 'high' else ('High' if total_pois > 15 else 'Moderate')
-
-        # Generate local evidence-based reasons
+        engine_key = _ENGINE_ALIASES.get(key, key)
+        rev = utils.calculate_smart_revenue(elements, business_type=engine_key, lat=best['latitude'], lon=best['longitude'])
+        monthly = float(rev.get('monthly_revenue') or 0)
+        if monthly <= 0:
+            continue
+        costs = monthly * opex_ratio
+        profit = monthly - costs
+        break_even = round(setup_cost / profit, 1) if profit > 0 else None
+        uses_default = engine_key not in BUSINESS_METRICS
+        ml_bonus = {'primary': 15, 'alternative': 6, 'choice': 8}.get(role, 0)
+        # Categories the engine has no parameters for all get the same generic
+        # figure, so they rank below categories it actually models.
+        score = (rev.get('potential_score', 0) + ml_bonus - min(15, competitors * 1.5)
+                 - (15 if uses_default else 0))
+        comp_level = 'Low' if competitors <= 1 else ('Moderate' if competitors <= 5 else 'High')
         reasons = [
-            f"Strong local footfall indicators ({dominant_intensity.capitalize()} intensity zone with {total_pois} monitored amenities).",
-            f"Competition index: {direct_comp} direct {arch['category']} competitors detected within the 5 km trading radius.",
-            f"Ideal operating window: {arch['focus']} aligns with local commuting and activity patterns.",
-            f"Estimated monthly profit of ₹{profit:,} based on standard operational cost benchmark ({int(arch['cost_ratio']*100)}% OPEX)."
+            f"{best['level'].capitalize()}-activity sector ({best.get('density_per_km2', 0)} mapped places/km²) "
+            f"{round(_haversine_distance_m(lat, lon, best['latitude'], best['longitude']) / 1000, 1)} km from {clean_loc}.",
+            f"{competitors} same-category place{'s' if competitors != 1 else ''} within 1 km of that spot "
+            f"({competitors_area} in the whole 5 km area).",
+            f"Revenue engine: ≈₹{int(monthly):,}/month gross sales, potential {rev.get('potential_score', 0)}/100"
+            + (' (generic assumptions for this category).' if uses_default else '.'),
         ]
-
-        recommendations.append({
-            'rank': i + 1,
-            'id': f"rec_{i+1}_{abs(hash(arch['category'] + str(lat))) % 10000}",
-            'name': f"{clean_loc} {arch['base_name']}",
-            'category': arch['category'],
+        if role == 'primary':
+            reasons.insert(0, "The ML model's top recommendation for this area.")
+        elif role in ('alternative', 'choice'):
+            reasons.append(f'Suggested by the ML model for {level}-crowd areas.')
+        scored.append((score, {
+            'id': f"rec_{key}_{abs(hash((key, round(lat, 4), round(lon, 4)))) % 100000}",
+            'name': name,
+            'category': key,
+            'engine_category': engine_key,
             'locality': clean_loc,
-            'badge': arch['badge'],
-            'icon': arch['icon'],
-            'target_lat': target_lat,
-            'target_lon': target_lon,
-            'starting_monthly_revenue': local_rev,
-            'estimated_monthly_costs': costs,
-            'estimated_monthly_profit': profit,
-            'currency': 'INR',
-            'expected_demand': demand,
+            'badge': {'primary': 'ML top pick', 'alternative': 'ML alternative', 'choice': 'Fits crowd profile'}.get(role, 'Revenue engine'),
+            'icon': icon,
+            'target_lat': round(best['latitude'], 6),
+            'target_lon': round(best['longitude'], 6),
+            'crowd_level': best['level'],
+            'starting_monthly_revenue': int(round(monthly, -2)),
+            'estimated_monthly_costs': int(round(costs, -2)),
+            'estimated_monthly_profit': int(round(profit, -2)),
+            'setup_cost_estimate': setup_cost,
+            'break_even_months': break_even,
+            'potential_score': rev.get('potential_score', 0),
+            'confidence_score': rev.get('confidence_score'),
+            'competitors_1km': competitors,
+            'competitors_area': competitors_area,
             'competition_level': comp_level,
+            'expected_demand': {'high': 'High', 'medium': 'Moderate', 'low': 'Low'}[best['level']],
+            'ml_match': role in ('primary', 'alternative', 'choice'),
             'reasons': reasons,
-            'data_source': 'OpenStreetMap POI Analysis + Spatial Gravity Model',
-            'last_updated': now_iso,
-            'confidence': 'High (Signal-based)' if total_pois >= 10 else 'Moderate (Signal-based)',
-            'is_live_opportunity': True,
-        })
+            'assumptions': f'Profit uses an operating-cost share of {int(opex_ratio * 100)}% and set-up cost ≈₹{setup_cost:,} (planning assumptions).',
+            'data_source': 'OpenStreetMap + ML model + revenue engine',
+            'confidence': f"{rev.get('confidence_score', '—')}/100 engine confidence",
+            'uses_default_assumptions': uses_default,
+            'is_estimate': True,
+        }))
+    for model_score, rec in scored:
+        full = synergy_area.analyze(rec['target_lat'], rec['target_lon'], rec['category'], rec['starting_monthly_revenue'],
+                                    competitor_types=_REC_CATALOG.get(rec['category'], _REC_DEFAULT)[3] or (rec['category'],),
+                                    location_name=clean_loc)
+        rec['synergy'] = synergy.summary(full)
+        rec['model_score'] = round(max(0.0, min(100.0, model_score)), 1)
+        # Overall = existing model ranking (60%) + synergy potential (40%).
+        rec['overall_score'] = round(0.6 * rec['model_score'] + 0.4 * full['score'], 1)
 
-    return recommendations
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    recs = [rec for _score, rec in scored[:limit]]
+    for i, rec in enumerate(recs, 1):
+        rec['rank'] = i
+    return {'recommendations': recs, 'comparison': _compare_picks([r for _s, r in scored])}
+
+
+def _compare_picks(candidates):
+    """Best by the existing model, best by synergy potential, best overall (from all candidates, not just the top 5)."""
+    if not candidates:
+        return None
+    pick = lambda key: max(candidates, key=lambda r: (r[key], r['starting_monthly_revenue']))
+    brief = lambda r, why: {'name': r['name'], 'category': r['category'], 'rank': r.get('rank'),
+                            'model_score': r['model_score'], 'synergy_score': r['synergy']['score'],
+                            'synergy_level': r['synergy']['level'], 'overall_score': r['overall_score'],
+                            'monthly_revenue': r['starting_monthly_revenue'],
+                            'moderate_monthly': r['synergy']['scenarios']['moderate']['monthly'],
+                            'target_lat': r['target_lat'], 'target_lon': r['target_lon'], 'why': why}
+    model = candidates[0]  # candidates arrive in the model's ranking order
+    syn = max(candidates, key=lambda r: (r['synergy']['score'], r['starting_monthly_revenue']))
+    overall = pick('overall_score')
+    return {
+        'model': brief(model, 'Highest ranking from the existing ML + revenue-engine recommendation.'),
+        'synergy': brief(syn, 'Strongest help from nearby businesses and surroundings.'),
+        'overall': brief(overall, 'Best combined: 60% existing model ranking + 40% synergy potential.'),
+        'method': 'Overall score = 0.6 × model score (0–100) + 0.4 × synergy potential score (0–100).',
+    }

@@ -28,8 +28,14 @@
             <a href="{% url 'dashboard' %}?ai=true" id="sidebar-ai-link" class="sidebar-link">
                 <i class="fas fa-chart-line me-3"></i>Business Analytics
             </a>
+            <a href="{% url 'dashboard' %}?recs=true" id="sidebar-recs-link" class="sidebar-link">
+                <i class="fas fa-lightbulb me-3"></i>Business Recommendations
+            </a>
             <a href="#" id="sidebar-startup-form-link" class="sidebar-link">
                 <i class="fas fa-clipboard-list me-3"></i>Startup Form
+            </a>
+            <a href="{% url 'favorites' %}" id="sidebar-favorites-link" class="sidebar-link">
+                <i class="fas fa-heart me-3"></i>Favorites
             </a>
 
             <a href="{% url 'home' %}" class="sidebar-link">
@@ -78,7 +84,7 @@
                     <span class="badge-dot"></span>
                     <span>AI-Powered Platform</span>
                 </div>
-                <h1 class="feature-hero-title">Business Intelligence</h1>
+                <h1 class="feature-hero-title">Business <strong>Intelligence</strong></h1>
                 <p class="feature-hero-sub">Real-time crowd analytics, business intelligence, and location insights —
                     all in one platform.</p>
                 <div class="feature-cta-row">
@@ -88,10 +94,28 @@
                     <button class="btn-feature-outline" id="btn-show-ai-recommender">
                         <i class="fas fa-brain"></i> AI Recommender
                     </button>
+                    <button class="btn-feature-outline" id="btn-show-recommendations">
+                        <i class="fas fa-lightbulb"></i> Business Recommendations
+                    </button>
                 </div>
             </div>
 
             <div class="feature-grid">
+                <!-- Business Recommendations -->
+                <div class="feature-tile tile-ai">
+                    <div class="tile-glow"></div>
+                    <div class="tile-icon"><i class="fas fa-lightbulb"></i></div>
+                    <h3>Business Recommendations</h3>
+                    <p>Top 5 businesses to open around the location you searched, ranked from live map data, the ML
+                        model and the revenue engine – with revenue, break-even and competition for each.</p>
+                    <ul class="tile-features">
+                        <li><i class="fas fa-check"></i> Based on your searched location</li>
+                        <li><i class="fas fa-check"></i> Revenue &amp; break-even estimates</li>
+                        <li><i class="fas fa-check"></i> Filter by business category</li>
+                    </ul>
+                    <button class="tile-action" id="btn-show-recommendations-2">Open <i class="fas fa-arrow-right"></i></button>
+                </div>
+
                 <!-- Feature 1 -->
                 <div class="feature-tile tile-heatmap">
                     <div class="tile-glow"></div>
@@ -239,16 +263,16 @@
                 </div>
                 <!-- REVENUE PREDICTION DISPLAY -->
                 <div id="revenue-prediction-display" class="revenue-prediction-display d-none">
-                    <div class="revenue-item">
-                        <span class="revenue-label">Crowd Score</span>
+                    <div class="revenue-item" title="OpenStreetMap places (shops, food, services, transit…) inside the 5 km analysis circle">
+                        <span class="revenue-label">Mapped Places (5 km)</span>
                         <span id="crowd-score-value" class="revenue-value">--</span>
                     </div>
-                    <div class="revenue-item">
-                        <span class="revenue-label">Est. Monthly Revenue</span>
+                    <div class="revenue-item" id="revenue-estimate-item">
+                        <span class="revenue-label">Est. Monthly Revenue*</span>
                         <span id="revenue-value" class="revenue-value">₹--</span>
                     </div>
                 </div>
-                <div id="map-status" class="map-status">Map Ready</div>
+                <div id="map-status" class="map-status" role="status" aria-live="polite">Map Ready</div>
             </div>
         </div>
 
@@ -301,173 +325,10 @@
                         <div class="panel-content scrollable p-0">
                             <div class="tab-content" id="dashIntelContent">
                                 <div class="tab-pane fade show active" id="dash-recs" role="tabpanel">
-                                    <div class="futuristic-analytics-dashboard">
-                                        <!-- Header with animated gradient -->
-                                        <div class="analytics-header">
-                                            <div class="header-glow"></div>
-                                            <h3 class="analytics-title">
-                                                <span class="title-text">Revenue Intelligence</span>
-                                                <div class="title-pulse"></div>
-                                            </h3>
-                                            <div class="live-indicator">
-                                                <span class="live-dot"></span>
-                                                <span class="live-text">LIVE</span>
-                                            </div>
-                                        </div>
-
-                                        <!-- Chart Toggles -->
-                                        <div class="chart-controls">
-                                            <button class="chart-toggle active" data-chart="monthly">
-                                                <i class="fas fa-calendar-alt"></i>
-                                                <span>Monthly</span>
-                                            </button>
-                                            <button class="chart-toggle" data-chart="daily">
-                                                <i class="fas fa-chart-line"></i>
-                                                <span>Daily</span>
-                                            </button>
-                                            <button class="chart-toggle" data-chart="total">
-                                                <i class="fas fa-dollar-sign"></i>
-                                                <span>Total</span>
-                                            </button>
-                                            <button class="chart-toggle" data-chart="live">
-                                                <i class="fas fa-broadcast-tower"></i>
-                                                <span>Live</span>
-                                            </button>
-                                        </div>
-
-                                        <!-- Charts Grid -->
-                                        <div class="charts-grid">
-                                            <!-- Monthly Revenue Chart -->
-                                            <div class="chart-card active" id="monthly-chart-card">
-                                                <div class="card-glass">
-                                                    <div class="card-header">
-                                                        <div class="card-title">
-                                                            <i class="fas fa-calendar-alt"></i>
-                                                            <h4>Monthly Revenue</h4>
-                                                        </div>
-                                                        <div class="card-value">
-                                                            <span class="current-value">₹0</span>
-                                                            <span class="vs-text">vs</span>
-                                                            <span class="avg-value">₹0</span>
-                                                        </div>
-                                                    </div>
-                                                    <div class="chart-container">
-                                                        <canvas id="monthlyRevenueChart"></canvas>
-                                                    </div>
-                                                    <div class="card-stats">
-                                                        <div class="stat-item">
-                                                            <span class="stat-label">Growth</span>
-                                                            <span class="stat-value positive">+0%</span>
-                                                        </div>
-                                                        <div class="stat-item">
-                                                            <span class="stat-label">Peak</span>
-                                                            <span class="stat-value">₹0</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <!-- Daily Revenue Chart -->
-                                            <div class="chart-card" id="daily-chart-card">
-                                                <div class="card-glass">
-                                                    <div class="card-header">
-                                                        <div class="card-title">
-                                                            <i class="fas fa-chart-line"></i>
-                                                            <h4>Daily Revenue</h4>
-                                                        </div>
-                                                        <div class="card-value">
-                                                            <span class="current-value">₹0</span>
-                                                            <span class="vs-text">vs</span>
-                                                            <span class="avg-value">₹0</span>
-                                                        </div>
-                                                    </div>
-                                                    <div class="chart-container">
-                                                        <canvas id="dailyRevenueChart"></canvas>
-                                                    </div>
-                                                    <div class="card-stats">
-                                                        <div class="stat-item">
-                                                            <span class="stat-label">Today</span>
-                                                            <span class="stat-value positive">+0%</span>
-                                                        </div>
-                                                        <div class="stat-item">
-                                                            <span class="stat-label">Avg</span>
-                                                            <span class="stat-value">₹0</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <!-- Total Revenue Chart -->
-                                            <div class="chart-card" id="total-chart-card">
-                                                <div class="card-glass">
-                                                    <div class="card-header">
-                                                        <div class="card-title">
-                                                            <i class="fas fa-dollar-sign"></i>
-                                                            <h4>Total Revenue</h4>
-                                                        </div>
-                                                        <div class="card-value">
-                                                            <span class="current-value">₹0</span>
-                                                            <span class="vs-text">vs</span>
-                                                            <span class="avg-value">₹0</span>
-                                                        </div>
-                                                    </div>
-                                                    <div class="chart-container">
-                                                        <canvas id="totalRevenueChart"></canvas>
-                                                    </div>
-                                                    <div class="card-stats">
-                                                        <div class="stat-item">
-                                                            <span class="stat-label">Total</span>
-                                                            <span class="stat-value">₹0</span>
-                                                        </div>
-                                                        <div class="stat-item">
-                                                            <span class="stat-label">Target</span>
-                                                            <span class="stat-value">₹0</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <!-- Live Revenue Chart -->
-                                            <div class="chart-card" id="live-chart-card">
-                                                <div class="card-glass">
-                                                    <div class="card-header">
-                                                        <div class="card-title">
-                                                            <i class="fas fa-broadcast-tower"></i>
-                                                            <h4>Live Revenue</h4>
-                                                        </div>
-                                                        <div class="card-value">
-                                                            <span class="current-value">₹0</span>
-                                                            <span class="vs-text">vs</span>
-                                                            <span class="avg-value">₹0</span>
-                                                        </div>
-                                                    </div>
-                                                    <div class="chart-container">
-                                                        <canvas id="liveRevenueChart"></canvas>
-                                                    </div>
-                                                    <div class="card-stats">
-                                                        <div class="stat-item">
-                                                            <span class="stat-label">Live</span>
-                                                            <span class="stat-value pulse">₹0</span>
-                                                        </div>
-                                                        <div class="stat-item">
-                                                            <span class="stat-label">Rate</span>
-                                                            <span class="stat-value">₹0/hr</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- Loading Overlay -->
-                                        <div class="loading-overlay" id="analytics-loading">
-                                            <div class="loading-spinner">
-                                                <div class="spinner-ring"></div>
-                                                <div class="spinner-ring"></div>
-                                                <div class="spinner-ring"></div>
-                                            </div>
-                                            <p class="loading-text">Analyzing revenue data...</p>
-                                        </div>
-                                    </div>
+                                    <!-- Projected revenue 3D graph (static/js/revenue-3d.js) for the last map analysis -->
+                                    <section id="revenue-analytics-3d" aria-label="Projected revenue analytics"></section>
+                                    <!-- Synergy Revenue Intelligence (static/js/synergy.js): base vs synergy-adjusted projection -->
+                                    <section id="synergy-revenue-intel" aria-label="Synergy revenue intelligence"></section>
                                     <div class="tab-pane fade" id="dash-ai" role="tabpanel">
                                         <div id="business-suggestion-content">
                                             <div class="text-center text-muted p-3">
@@ -525,8 +386,8 @@
                             <div class="mb-3 position-relative">
                                 <label for="dashboard-form-location-search" class="form-label"><i
                                         class="fas fa-map-marker-alt me-1 text-success"></i>Business Location</label>
-                                <input type="text" id="dashboard-form-location-search" class="form-control"
-                                    placeholder="Search area to load business types...">
+                                <input type="text" id="dashboard-form-location-search" name="location_name" class="form-control"
+                                    placeholder="Search area to load business types..." autocomplete="off">
                                 <div id="dashboard-form-location-suggestions" class="suggestions-list"></div>
                             </div>
 
@@ -583,138 +444,44 @@
                 </div>
             </div>
 
-            <!-- Business Recommendations Section -->
-            <div class="business-recommendations-section d-none">
-                <div class="recommendations-header d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-                    <div>
-                        <h3 class="recommendations-title mb-1">
-                            <i class="fas fa-lightbulb text-warning"></i>
-                            Top 5 Business Recommendations
-                        </h3>
-                        <div class="recommendations-subtitle text-muted small" id="recommendations-subtitle">Location-specific commercial opportunities within 5 km trading zone</div>
+            <!-- Business Recommendations Section (ids/handlers unchanged; styles: .recs-* in style.css) -->
+            <div class="business-recommendations-section d-none" id="business-recommendations-section">
+                <div class="recs-panel">
+                    <div class="recommendations-header">
+                        <div class="recs-heading">
+                            <span class="recs-icon" aria-hidden="true"><i class="fas fa-lightbulb"></i></span>
+                            <div class="recs-heading-text">
+                                <h3 class="recommendations-title">Top 5 Business Recommendations</h3>
+                                <div class="recommendations-subtitle" id="recommendations-subtitle">Location-specific commercial opportunities within 5 km trading zone</div>
+                            </div>
+                        </div>
+                        <span class="recs-chip"><i class="fas fa-bullseye"></i>5 km trading zone</span>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
-                        <label for="dashboard-rec-location-select" class="text-muted small text-nowrap"><i class="fas fa-map-marker-alt text-primary me-1"></i>Location:</label>
-                        <select id="dashboard-rec-location-select" class="form-select form-select-sm bg-dark text-light border-secondary" style="min-width: 230px;">
-                            <option value="">Select Area...</option>
-                            <option value="12.9716,77.5946,MG Road, Bengaluru">MG Road, Bengaluru</option>
-                            <option value="12.9352,77.6245,Koramangala, Bengaluru">Koramangala, Bengaluru</option>
-                            <option value="12.9784,77.6408,Indiranagar, Bengaluru">Indiranagar, Bengaluru</option>
-                            <option value="12.9279,77.6271,HSR Layout, Bengaluru">HSR Layout, Bengaluru</option>
-                            <option value="12.9866,77.7376,Whitefield, Bengaluru">Whitefield, Bengaluru</option>
-                            <option value="12.9250,77.5938,Jayanagar, Bengaluru">Jayanagar, Bengaluru</option>
-                        </select>
-                        <button type="button" id="btn-dashboard-refresh-recs" class="btn btn-sm btn-outline-primary" title="Refresh Recommendations">
-                            <i class="fas fa-sync-alt"></i>
+
+                    <div class="recs-toolbar">
+                        <div class="recs-field recs-field-location">
+                            <label for="dashboard-rec-location-select"><i class="fas fa-map-marker-alt"></i>Location</label>
+                            <!-- Filled by main.js: current searched location, recent searches, saved favorites -->
+                            <select id="dashboard-rec-location-select" class="form-select recs-select">
+                                <option value="">Search a location on the map first…</option>
+                            </select>
+                        </div>
+                        <div class="recs-field">
+                            <label for="dashboard-rec-category-select"><i class="fas fa-filter"></i>Category</label>
+                            <select id="dashboard-rec-category-select" class="form-select recs-select">
+                                <option value="">All categories</option>
+                            </select>
+                        </div>
+                        <button type="button" id="btn-dashboard-refresh-recs" class="recs-refresh" title="Refresh Recommendations" aria-label="Refresh recommendations">
+                            <i class="fas fa-sync-alt"></i><span>Refresh</span>
                         </button>
                     </div>
                 </div>
 
-                <div class="business-flashcards-container row g-3" id="dashboard-recommendations-cards-container">
+                <div class="business-flashcards-container recs-grid" id="dashboard-recommendations-cards-container">
                     <div class="text-center text-muted p-5 col-12" id="dashboard-recs-placeholder">
                         <div class="spinner-border text-primary mb-3" role="status"></div>
                         <p>Select an area or use the map to generate location-specific recommendations within 5 km.</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Startup Form Section (Hidden by default) -->
-            <div id="dashboard-startup-form-section" class="dashboard-startup-form-section d-none mt-4">
-                <div class="dashboard-form-panel">
-                    <div class="panel-header">
-                        <div class="d-flex align-items-center">
-                            <button class="btn btn-back-dashboard" id="btn-back-to-launchpad-from-form">
-                                <i class="fas fa-arrow-left me-2"></i> Dashboard
-                            </button>
-                            <h2 class="ms-3 mb-0 h5"><i class="fas fa-clipboard-list me-2"></i>Business Information</h2>
-                        </div>
-                    </div>
-                    <div class="panel-content">
-                        <p class="text-muted mb-4">Fill in your details to check feasibility and find the ideal
-                            location.</p>
-
-                        <form id="dashboard-business-form">
-                            {% csrf_token %}
-                            <!-- Name & Email row -->
-                            <div class="row g-3 mb-3">
-                                <div class="col-md-6">
-                                    <label for="dashboard-id_name" class="form-label">Your Name</label>
-                                    <input type="text" id="dashboard-id_name" name="name" class="form-control"
-                                        placeholder="Full name" required>
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="dashboard-id_email" class="form-label">Email</label>
-                                    <input type="email" id="dashboard-id_email" name="email" class="form-control"
-                                        placeholder="you@example.com" required>
-                                </div>
-                            </div>
-
-                            <!-- Phone -->
-                            <div class="mb-3">
-                                <label for="dashboard-id_phone" class="form-label"><i
-                                        class="fas fa-phone me-1 text-success"></i>Phone</label>
-                                <input type="text" id="dashboard-id_phone" name="phone" class="form-control"
-                                    placeholder="Phone number" required>
-                            </div>
-
-                            <!-- Business Location -->
-                            <div class="mb-3 position-relative">
-                                <label for="dashboard-form-location-search" class="form-label"><i
-                                        class="fas fa-map-marker-alt me-1 text-success"></i>Business Location</label>
-                                <input type="text" id="dashboard-form-location-search" class="form-control"
-                                    placeholder="Search area to load business types...">
-                                <div id="dashboard-form-location-suggestions" class="suggestions-list"></div>
-                            </div>
-
-                            <!-- Business Type DROPDOWN -->
-                            <div class="mb-3">
-                                <label for="dashboard-id_business_type_dropdown" class="form-label"><i
-                                        class="fas fa-store me-1 text-success"></i>Business Type to Start</label>
-                                <select id="dashboard-id_business_type_dropdown" name="business_type"
-                                    class="form-select" required>
-                                    <option value="">-- Search a location first --</option>
-                                </select>
-                                <small id="dashboard-form-flow-hint" class="form-text text-muted">
-                                    <i class="fas fa-info-circle me-1"></i>Select a location above to load recommended
-                                    business types.
-                                </small>
-                            </div>
-
-                            <!-- Desired Crowd Intensity -->
-                            <div class="mb-3">
-                                <label for="dashboard-id_crowd_intensity" class="form-label"><i
-                                        class="fas fa-users me-1 text-success"></i>Desired Crowd Intensity</label>
-                                <select id="dashboard-id_crowd_intensity" name="crowd_intensity" class="form-select"
-                                    required>
-                                    <option value="">-- Select intensity --</option>
-                                    <option value="low">Low &mdash; Quiet, few visitors</option>
-                                    <option value="medium">Moderate &mdash; Steady foot traffic</option>
-                                    <option value="high">High &mdash; Busy, high footfall</option>
-                                </select>
-                            </div>
-
-                            <!-- Hidden fields -->
-                            <input type="hidden" id="dashboard-id_latitude" name="latitude">
-                            <input type="hidden" id="dashboard-id_longitude" name="longitude">
-                            <input type="hidden" id="dashboard-id_recommended_business" name="recommended_business">
-
-                            <!-- Feasibility Result Banner -->
-                            <div id="dashboard-feasibility-result-banner" class="alert d-none mb-3" role="alert">
-                            </div>
-
-                            <!-- Action Buttons -->
-                            <div class="d-flex gap-2">
-                                <button type="submit" id="dashboard-submit-business-form-btn"
-                                    class="btn btn-success flex-fill">
-                                    <i class="fas fa-check-circle me-2"></i>Check Feasibility & Submit
-                                </button>
-                                <button type="button" id="dashboard-reset-business-form-btn"
-                                    class="btn btn-outline-secondary">
-                                    <i class="fas fa-redo me-1"></i>Reset
-                                </button>
-                            </div>
-                        </form>
-                        <div id="dashboard-form-message" class="mt-3"></div>
                     </div>
                 </div>
             </div>
@@ -747,7 +514,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script src="{% static 'js/dashboard-form.js' %}"></script>
-    <script src="{% static 'js/analytics-dashboard.js' %}"></script>
+    <script src="{% static 'js/dashboard-form.js' %}?v=2.0"></script>
+    <script src="{% static 'js/revenue-3d.js' %}?v=1.2"></script>
 
     {% endblock %}

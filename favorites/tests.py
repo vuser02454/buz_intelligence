@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -182,6 +183,55 @@ class FavoritesApiTests(SimpleTestCase):
     def test_recommendation_param_validation(self):
         self.assertEqual(self.get('/api/favorites/recommendations/?lat=12').status_code, 400)
         self.assertEqual(self.get('/api/favorites/recommendations/?lat=x&lon=1').status_code, 400)
+
+    # ---- saved locations (map / search / GPS / startup form / recommendation cards) ----
+    LOCATION = {'place_key': 'geo:12.9055:77.5455:', 'name': 'Uttarahalli', 'latitude': 12.90551, 'longitude': 77.54549}
+
+    def test_location_key_ignores_the_name_so_a_spot_is_saved_once(self):
+        self.assertEqual(self.post('/api/favorites/', self.LOCATION).status_code, 201)
+        renamed = {**self.LOCATION, 'name': 'Map Selection'}
+        self.assertEqual(self.post('/api/favorites/', renamed).status_code, 200)   # existing row returned
+        self.assertEqual(len(self.fake.rows), 1)
+        self.assertFalse(self.post('/api/favorites/toggle/', renamed).json()['favorited'])  # heart off removes it
+        self.assertEqual(self.fake.rows, [])
+
+    def test_saved_locations_persist_per_user_across_requests(self):
+        self.post('/api/favorites/', self.LOCATION, user='alice')
+        for _ in range(2):   # a new page load / new session lists the same server-side rows
+            favs = self.get('/api/favorites/', user='alice').json()['favorites']
+            self.assertEqual([f['name'] for f in favs], ['Uttarahalli'])
+        self.assertEqual(self.get('/api/favorites/', user='bob').json()['favorites'], [])
+
+    def test_list_reports_cached_analysis_without_fetching(self):
+        from business_intelligence import analysis
+        self.post('/api/favorites/', self.LOCATION)
+        self.post('/api/favorites/', PLACE)
+        store_ = analysis._area_cache()
+        key = analysis._area_key(12.90551, 77.54549, analysis.HEATMAP_RADIUS_M)
+        store_.set(key, {'elements': [{}] * 7, 'fetched_at': time.time()}, 60)
+        self.addCleanup(store_.delete, key)
+        with patch('business_intelligence.analysis._run_overpass_query') as overpass:
+            favs = {f['name']: f for f in self.get('/api/favorites/').json()['favorites']}
+        overpass.assert_not_called()
+        self.assertEqual(favs['Uttarahalli']['analysis']['status'], 'fresh')
+        self.assertEqual(favs['Uttarahalli']['analysis']['places'], 7)
+        self.assertEqual(favs['Cafe One']['analysis'], {'status': 'none'})
+
+    def test_outdated_cached_analysis_is_marked_stale(self):
+        from business_intelligence import analysis
+        self.post('/api/favorites/', self.LOCATION)
+        store_ = analysis._area_cache()
+        key = analysis._area_key(12.90551, 77.54549, analysis.HEATMAP_RADIUS_M)
+        store_.set(key, {'elements': [], 'fetched_at': time.time() - analysis.AREA_FRESH_S - 5}, 60)
+        self.addCleanup(store_.delete, key)
+        fav = self.get('/api/favorites/').json()['favorites'][0]
+        self.assertEqual(fav['analysis']['status'], 'stale')
+
+    def test_cache_failure_does_not_hide_favorites(self):
+        self.post('/api/favorites/', self.LOCATION)
+        with patch('business_intelligence.analysis.area_cache_status', side_effect=RuntimeError('cache down')):
+            favs = self.get('/api/favorites/').json()['favorites']
+        self.assertEqual(favs[0]['analysis'], {'status': 'unknown'})
 
     def test_missing_table_gives_actionable_error(self):
         with patch('favorites.store.list_favorites',

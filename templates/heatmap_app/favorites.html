@@ -21,6 +21,8 @@
     .fav-card-top { display: flex; justify-content: space-between; align-items: center; min-height: 28px; }
     .fav-cat { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; }
     .fav-score { font-size: .75rem; color: #38bdf8; font-weight: 600; }
+    .fav-select { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin: 0; }
+    .fav-select input { accent-color: #38bdf8; }
     .fav-addr { color: #94a3b8; font-size: .8rem; margin: 0; }
     .fav-reasons { margin: 0; padding-left: 18px; color: #cbd5e1; font-size: .8rem; }
     .fav-actions { display: flex; gap: 14px; margin-top: auto; padding-top: 6px; font-size: .8rem; }
@@ -35,6 +37,25 @@
     .fav-empty i { font-size: 2rem; color: #475569; margin-bottom: 8px; }
     .fav-gate { text-align: center; padding: 48px 24px; }
     .fav-gate i { font-size: 2.4rem; color: #fb7185; margin-bottom: 12px; }
+    .fav-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; font-size: .75rem; color: #94a3b8; }
+    .fav-meta i { margin-right: 5px; opacity: .8; }
+    .fav-analysis { align-self: flex-start; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+                    padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,.15); color: #cbd5e1; }
+    .fav-an-fresh { border-color: rgba(255,255,255,.6); color: #fff; }
+    .fav-an-none { color: #8a8a8a; border-style: dashed; }
+    .fav-summary { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 6px; background: rgba(255,255,255,.04);
+                   border: 1px solid rgba(255,255,255,.08); font-size: .78rem; color: #cbd5e1; }
+    .fav-summary.muted { color: #8a8a8a; }
+    .fav-summary-label { font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; color: #8a8a8a; }
+    .fav-summary strong { color: #f1f5f9; font-size: .88rem; }
+    .fav-actions { flex-wrap: wrap; align-items: center; }
+    .fav-open { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-weight: 600;
+                background: #fff; color: #080808 !important; }
+    .fav-open:hover { background: #dcdcdc; }
+    .fav-search-wrap { position: relative; max-width: 360px; margin-bottom: 14px; }
+    .fav-search-wrap i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #777; pointer-events: none; }
+    .fav-search-wrap input { padding-left: 34px; }
+    @media (max-width: 575.98px) { .fav-section { padding: 18px 14px; } .fav-page { padding: 24px 12px; } }
 </style>
 {% endblock %}
 
@@ -52,12 +73,16 @@
             <!-- My Favorites (Places) -->
             <section class="fav-section">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
-                    <h2><i class="fas fa-heart text-danger"></i> My Favorites <span class="fav-badge" id="fav-count">0</span></h2>
-                    <button type="button" class="btn btn-outline-info btn-sm" id="btn-download-favs-report" title="Download summary report of all saved & marked places">
+                    <h2><i class="fas fa-heart text-danger"></i> Saved Locations <span class="fav-badge" id="fav-count">0</span></h2>
+                    <button type="button" class="btn btn-outline-info btn-sm" id="btn-download-favs-report" title="Full analysis of each saved place plus a comparison table">
                         <i class="fas fa-file-pdf me-1"></i> Download All Favorites Report
                     </button>
                 </div>
-                <p class="sub">Places you've saved from the heatmap and Popular Places.</p>
+                <p class="sub">Locations and places you've saved from the heatmap, search, Popular Places and recommendations. Open one to jump straight to its analysis; tick places to compare only those in the report.</p>
+                <div class="fav-search-wrap d-none">
+                    <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                    <input type="search" id="fav-search" class="form-control form-control-sm" placeholder="Search saved locations" aria-label="Search saved locations">
+                </div>
                 <div id="fav-chips" class="fav-chips"></div>
                 <div id="fav-list" class="fav-grid"></div>
             </section>

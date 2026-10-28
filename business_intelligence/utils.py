@@ -155,19 +155,21 @@ def _coord_from_element(el):
     return float(lat), float(lon)
 
 
-def enrich_places_with_revenue(places):
+def enrich_places_with_revenue(places, targets=None):
     """
     Advanced Revenue AI calculation.
     Enriches top popular POIs using spatial prediction engine while using all places as context.
+    `targets` (e.g. analysis.sample_places_across_sectors) chooses which places
+    to estimate; by default the first 30 named businesses are used.
     """
     if not places:
         return [], 0.0
-    
+
     from .prediction_engine import predict_site_revenue
-    
+
     # Filter target places: named businesses / POIs (amenity, shop, tourism)
-    target_places = []
-    for p in places:
+    target_places = list(targets or [])
+    for p in ([] if targets else places):
         tags = p.get('tags', {})
         if 'name' in tags and ('amenity' in tags or 'shop' in tags or 'tourism' in tags):
             target_places.append(p)
@@ -381,11 +383,32 @@ def _recommendations_from_metrics(metrics):
     return recs[:3]
 
 
+# The engine models a local catchment: its competition term is exp(-gamma * n)
+# over every same-category place it is given. Feeding it a whole 2-5 km area
+# (thousands of places in a city) drove modelled categories to ~0 revenue, so
+# callers' elements are cut to this radius around the site, the same catchment
+# enrich_places_with_revenue uses for per-place estimates.
+ENGINE_CATCHMENT_M = 1500
+
+
+def engine_catchment(elements, lat, lon, radius_m=ENGINE_CATCHMENT_M):
+    """Elements within `radius_m` of (lat, lon): the input the revenue engine is designed for."""
+    out = []
+    for el in elements or []:
+        coords = _coord_from_element(el)
+        if coords and _haversine_m(lat, lon, coords[0], coords[1]) <= radius_m:
+            out.append(el)
+    return out
+
+
 def calculate_smart_revenue(elements, business_type='default', hour=None, lat=None, lon=None):
     """
     Wrapper around the redesigned prediction engine to calculate smart revenue.
+    With lat/lon given, only the ENGINE_CATCHMENT_M catchment around the site is used.
     """
     from .prediction_engine import predict_site_revenue, FeatureExtractor
+    if lat is not None and lon is not None:
+        elements = engine_catchment(elements, float(lat), float(lon))
     
     # Extract lat/lon if not provided
     if lat is None or lon is None:

@@ -4,6 +4,7 @@ from . import views
 urlpatterns = [
     path('dashboard/', views.dashboard, name='dashboard'),
     path('login/', views.login_view, name='login'),
+    path('auth/callback/', views.auth_callback, name='auth_callback'),
     path('profile/', views.profile_view, name='profile'),
     path('submit-form/', views.submit_form, name='submit_form'),
     path('check-feasibility/', views.check_feasibility, name='check_feasibility'),
@@ -14,4 +15,6 @@ urlpatterns = [
     path('api/find-matching-locations/', views.find_matching_locations, name='find_matching_locations'),
     path('api/location-recommendations/', views.get_location_recommendations, name='get_location_recommendations'),
     path('api/log-activity/', views.log_activity_api, name='log_activity_api'),
+    path('api/revenue-timeseries/', views.revenue_timeseries, name='revenue_timeseries'),
+    path('api/synergy/', views.synergy_analysis, name='synergy_analysis'),
 ]

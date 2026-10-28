@@ -561,7 +561,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
     let supaClient = null;
     let currentUser = null;
@@ -584,10 +583,11 @@
             });
         }
 
-        const { data, error } = await supaClient.auth.getSession();
-        if (error || !data || !data.session) { showGate(); return; }
+        // Server-verified user (never the unverified localStorage copy).
+        const user = window.SupabaseAuth ? await window.SupabaseAuth.ready : null;
+        if (!user) { showGate(); return; }
 
-        currentUser = data.session.user;
+        currentUser = user;
         populateProfile(currentUser);
         showContent();
     }

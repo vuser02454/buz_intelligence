@@ -219,7 +219,7 @@
   </div>
   <div class="cover-body">
     <div class="cover-grid">
-      <div class="cover-item"><div class="label">Location</div><div class="value locname">{{ meta.location_name }}</div></div>
+      <div class="cover-item"><div class="label">Location</div><div class="value locname">{{ meta.location_name }}</div>{% if meta.address %}<div class="meta">{{ meta.address }}</div>{% endif %}</div>
       <div class="cover-item"><div class="label">Coordinates</div><div class="value">{{ meta.latitude|floatformat:5 }}, {{ meta.longitude|floatformat:5 }}</div></div>
       <div class="cover-item"><div class="label">Business category</div><div class="value">{% if meta.business %}{{ meta.business }}{% else %}Not available{% endif %}</div>
         <div class="meta">{% if meta.requested_business %}Selected by you{% elif meta.business %}Top recommendation of the platform's ML model{% endif %}</div></div>
@@ -243,10 +243,11 @@
     <li><a href="#sec-recommendations">4. Business recommendations</a></li>
     <li><a href="#sec-competition">5. Competition and market</a></li>
     <li><a href="#sec-revenue">6. Revenue forecast</a></li>
-    <li><a href="#sec-feasibility">7. Business feasibility</a></li>
-    <li><a href="#sec-roadmap">8. Implementation roadmap</a></li>
-    <li><a href="#sec-risks">9. Risk analysis</a></li>
-    <li><a href="#sec-final">10. Final recommendations and checklist</a></li>
+    <li><a href="#sec-synergy">7. Business Synergy Opportunity Analysis</a></li>
+    <li><a href="#sec-feasibility">8. Business feasibility</a></li>
+    <li><a href="#sec-roadmap">9. Implementation roadmap</a></li>
+    <li><a href="#sec-risks">10. Risk analysis</a></li>
+    <li><a href="#sec-final">11. Final recommendations and checklist</a></li>
     <li><a href="#sec-appendix">Appendix: sources, assumptions and limitations</a></li>
   </ol>
   <h3>How to read this report</h3>
@@ -268,6 +269,7 @@
 {% include "reports/sections/recommendations.html" %}
 {% include "reports/sections/competition.html" %}
 {% include "reports/sections/revenue.html" %}
+{% include "reports/sections/synergy.html" %}
 <div class="pg-navy pg-dark">{% include "reports/sections/feasibility.html" %}</div>
 {% include "reports/sections/roadmap.html" %}
 {% include "reports/sections/risks.html" %}
