@@ -9,6 +9,7 @@ places side by side. Rendered with WeasyPrint, falling back to ReportLab.
 """
 import io
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from django.template.loader import render_to_string
 
@@ -99,12 +100,25 @@ def swot(s):
     return {'strengths': S or none, 'weaknesses': W or none, 'opportunities': O or none, 'threats': T}
 
 
+# Overpass gives each client about two query slots; more parallel fetches get 429s and all fail.
+_prefetch_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='favorites-prefetch')
+
+
+def prefetch_areas(places):
+    """Fetch the places' OpenStreetMap areas two at a time in the background (cache hits are
+    instant), so the next place's data is downloading while the current one is analysed.
+    Returns the futures; cancel them once the analysis is done."""
+    return [_prefetch_pool.submit(analysis.fetch_area_pois, place['latitude'], place['longitude'],
+                                  analysis.HEATMAP_RADIUS_M, wait_s=90) for place in places]
+
+
 def analyse_place(place):
     """Full analysis for one saved place; on failure the place is kept with the reason."""
     business = business_for_category(place.get('category'))
     base = {'place': place, 'business_requested': business}
     try:
-        s = collect_analysis(place['latitude'], place['longitude'], place['name'], analysis.HEATMAP_RADIUS_M, business)
+        s = collect_analysis(place['latitude'], place['longitude'], place['name'], analysis.HEATMAP_RADIUS_M, business,
+                             full=False)
     except CollectionError as exc:
         return {**base, 'status': 'unavailable', 'reason': str(exc)}
     feas = s.get('feasibility') or {}

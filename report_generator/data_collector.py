@@ -349,12 +349,14 @@ def _candidate_list(prediction, requested, ranked=None):
     return out[:4]
 
 
-def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None):
+def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None, full=True):
     """
     Run the platform's analysis for one location and return the snapshot.
     `progress(stage)` is called as each real step finishes ('collect',
     'crowd', 'recommend', 'revenue'). Raises CollectionError if
     OpenStreetMap data cannot be fetched at all.
+    full=False skips the synergy, candidate comparison and revenue time series
+    (most of the CPU time), which only the single-location report shows.
     """
     progress = progress or (lambda stage: None)
     missing = []
@@ -460,6 +462,9 @@ def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None):
         snapshot['revenue'] = {'status': 'unavailable', 'reason': reason}
         snapshot['competition'] = {'status': 'unavailable', 'reason': reason}
         missing.append({'item': 'Revenue forecast and competitor list', 'reason': reason})
+    if not full:
+        progress('revenue')
+        return snapshot
 
     # --- Business Synergy Intelligence ---
     # Same function, inputs and base revenue as /api/synergy/ (the revenue engine's

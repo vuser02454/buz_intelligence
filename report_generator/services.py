@@ -210,7 +210,12 @@ def _generate(report):
 
 def _generate_favorites(report):
     from . import favorites_report
-    results = [favorites_report.analyse_place(place) for place in report.places]
+    prefetches = favorites_report.prefetch_areas(report.places)
+    try:
+        results = [favorites_report.analyse_place(place) for place in report.places]
+    finally:
+        for fut in prefetches:  # any still queued are no longer needed
+            fut.cancel()
     if not any(r['status'] == 'ok' for r in results):
         raise CollectionError(results[0]['reason'] if results else 'No saved places to analyse.')
     _mark(report, 'collect')
