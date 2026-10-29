@@ -293,6 +293,43 @@ body.theme-mono :is(.dynamic-map-top-bar, .dynamic-map-footer, .search-overlay-c
     background: var(--color-2) !important; border-color: var(--line-light) !important; color: var(--color-1) !important;
 }
 body.theme-mono .legend-compact .badge { border-color: var(--line-light) !important; }
+
+/* Desktop map layout: toolbar / map / footer stacked in the viewport instead of overlaying a
+   full-bleed map, so nothing is clipped and Leaflet's controls need no offset hacks. */
+@media (min-width: 992px) {
+    body.theme-mono .dynamic-map-container { display: grid !important; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); }
+    body.theme-mono .dynamic-map-container .dashboard-map-viewport { position: relative !important; inset: auto !important; height: 100% !important; min-height: 0 !important; }
+    body.theme-mono .dashboard-map-viewport .leaflet-control-container :is(.leaflet-top, .leaflet-bottom) { margin: 0 !important; }
+
+    body.theme-mono .dynamic-map-top-bar { flex-wrap: nowrap !important; gap: var(--space-3, 0.5rem) !important; padding: 0.5rem 1rem !important; min-width: 0; }
+    body.theme-mono .dynamic-map-top-bar > * { min-width: 0; }
+    body.theme-mono .dynamic-map-top-bar .map-top-bar-search { flex: 1 1 260px !important; max-width: 380px !important; min-width: 160px !important; }
+    body.theme-mono .dynamic-map-top-bar .map-top-bar-search .form-control { min-width: 0; }
+    body.theme-mono .dynamic-map-top-bar :is(.btn, .form-control) { height: 36px; }
+    body.theme-mono .dynamic-map-top-bar .map-top-bar-search { height: 36px; padding: 0 0 0 0.25rem !important; }
+    body.theme-mono .dynamic-map-top-bar .map-top-bar-search :is(.btn, .form-control) { height: 32px; }
+
+    body.theme-mono .dynamic-map-footer {
+        position: relative !important; inset: auto !important; display: flex !important; flex-wrap: nowrap !important;
+        align-items: center !important; gap: 1rem !important; padding: 0.4rem 104px 0.4rem 1rem !important; min-height: 52px;
+    }
+    body.theme-mono .dynamic-map-footer .legend-compact { flex-shrink: 0; gap: 0.5rem !important; }
+    body.theme-mono .dynamic-map-footer .revenue-prediction-display {
+        flex-shrink: 0; margin: 0 !important; padding: 0.3rem 1rem !important; gap: 1.25rem !important; border-radius: var(--radius-md, 8px) !important; transform: none !important;
+    }
+    body.theme-mono .dynamic-map-footer .revenue-item { flex-direction: row !important; align-items: baseline !important; gap: 0.5rem !important; }
+    body.theme-mono .dynamic-map-footer .revenue-value { font-size: 1rem !important; line-height: 1.2 !important; white-space: nowrap; }
+    body.theme-mono .dynamic-map-footer .map-status { flex: 1 1 0; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+/* Narrower desktops: drop the title, then the button labels, before anything gets clipped. */
+@media (min-width: 992px) and (max-width: 1499.98px) {
+    body.theme-mono .dynamic-map-top-bar .map-top-bar-title { display: none !important; }
+}
+@media (min-width: 992px) and (max-width: 1279.98px) {
+    body.theme-mono .dynamic-map-top-bar .btn-map-control span,
+    body.theme-mono .dynamic-map-top-bar #btn-generate-report .btn-label { display: none !important; }
+    body.theme-mono .dynamic-map-top-bar #btn-generate-report i { margin: 0 !important; }
+}
 body.theme-mono .leaflet-container { background: #e5e7eb !important; }
 body.theme-mono :is(.leaflet-bar, .leaflet-control-layers) { border: var(--space-1) solid var(--color-1) !important; border-radius: var(--radius-md) !important; overflow: hidden !important; }
 body.theme-mono .leaflet-bar a { background: var(--color-2) !important; color: var(--color-1) !important; border-color: var(--line-light) !important; }
