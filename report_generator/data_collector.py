@@ -328,7 +328,7 @@ def _revenue_breakdown(elements, lat, lon, business_type, b_key, metrics, engine
 feasibility_elements = analysis.feasibility_elements
 
 
-def _candidate_list(prediction, requested):
+def _candidate_list(prediction, requested, ranked=None):
     seen = set()
     out = []
 
@@ -340,6 +340,8 @@ def _candidate_list(prediction, requested):
 
     if requested:
         add(requested, 'Your selected business')
+    if ranked:
+        add(ranked, 'Top-ranked for this location')
     if prediction:
         add(prediction['primary'], 'ML model (primary)')
         for alt in prediction.get('alternatives') or []:
@@ -401,9 +403,27 @@ def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None):
         snapshot['recommendation'] = {'status': 'unavailable', 'reason': f'The ML model could not run ({type(exc).__name__}).'}
         missing.append({'item': 'ML business recommendation', 'reason': snapshot['recommendation']['reason']})
 
-    target = business_type or (prediction['primary'] if prediction else '')
+    # Business category for the report: the user's choice, else the top pick of the platform's location
+    # ranking (crowd level, competition within 1 km and revenue potential at this spot), so it follows the
+    # area's data. The ML label alone is a fixed lookup per crowd level (every medium-crowd area gets the
+    # same answer), so it is only the fallback when the ranking cannot run.
+    ranking, ranked = None, ''
+    if not business_type and elements:
+        try:
+            ranking = analysis.recommend_businesses(lat, lon, radius_m=radius_m, location_name=name,
+                                                    elements=elements, limit=5)
+            ranked = (ranking['recommendations'][0]['name'] if ranking['recommendations'] else '')
+        except Exception:
+            logger.exception('Business ranking failed; using the ML label')
+            ranking = None
+    target = business_type or ranked or (prediction['primary'] if prediction else '')
     snapshot['target_business'] = target
     snapshot['requested_business'] = business_type
+    snapshot['target_source'] = 'selected' if business_type else 'ranked' if ranked else 'ml' if target else ''
+    if ranked:
+        top = ranking['recommendations'][0]
+        snapshot['target_pick'] = {k: top.get(k) for k in ('name', 'reasons', 'model_score', 'potential_score',
+                                                           'competitors_1km', 'crowd_level', 'badge')}
     progress('recommend')
 
     # --- Feasibility ---
@@ -444,11 +464,11 @@ def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None):
     # --- Business Synergy Intelligence ---
     # Same function, inputs and base revenue as /api/synergy/ (the revenue engine's
     # monthly figure from above), so the report and the website show the same numbers.
-    snapshot['synergy'] = _synergy(elements, lat, lon, name, target, snapshot['revenue'], radius_m, missing)
+    snapshot['synergy'] = _synergy(elements, lat, lon, name, target, snapshot['revenue'], radius_m, missing, ranking)
 
     # --- Candidate comparison (same engines, one run per candidate) ---
     candidates = []
-    for cand in _candidate_list(prediction, business_type):
+    for cand in _candidate_list(prediction, business_type, ranked):
         row = dict(cand)
         try:
             rev = utils.calculate_smart_revenue(elements, business_type=cand['business'], lat=lat, lon=lon)
@@ -473,14 +493,14 @@ def collect_analysis(lat, lon, name, radius_m, business_type='', progress=None):
     return snapshot
 
 
-def _synergy(elements, lat, lon, name, target, revenue, radius_m, missing):
+def _synergy(elements, lat, lon, name, target, revenue, radius_m, missing, ranking=None):
     if not target or revenue.get('status') != 'ok':
         reason = 'Synergy needs a business type and the revenue forecast, which were not available.'
         missing.append({'item': 'Business synergy analysis', 'reason': reason})
         return {'status': 'unavailable', 'reason': reason}
     try:
         result = synergy.for_location(elements, lat, lon, target, base_monthly=revenue['monthly'], location_name=name)
-        top = analysis.recommend_businesses(lat, lon, radius_m=radius_m, location_name=name, elements=elements, limit=5)
+        top = ranking or analysis.recommend_businesses(lat, lon, radius_m=radius_m, location_name=name, elements=elements, limit=5)
     except Exception as exc:
         logger.exception('Synergy analysis failed')
         reason = f'The synergy analysis could not run ({type(exc).__name__}).'

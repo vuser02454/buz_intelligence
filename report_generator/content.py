@@ -404,6 +404,11 @@ def candidate_text(s, cand):
                    + (f" with a '{rec['area_hint']}' character inferred from nearby places." if rec.get('area_hint') else '.'))
         if rec.get('reasoning'):
             why.append(f"Model note: {rec['reasoning'].rstrip('.')}.")
+    elif cand['source'].startswith('Top-ranked'):
+        pick = s.get('target_pick') or {}
+        why.append("The platform's location ranking put it first: it scores every business type by crowd level, "
+                   'competition within 1 km and revenue potential at this spot.')
+        why.extend((pick.get('reasons') or [])[:2])
     elif cand['source'].startswith('ML model'):
         why.append(f"The model predicts it for a different intensity level ({cand['source'].split('for ')[-1].split(' ')[0]}), "
                    "so it is shown as an alternative, not as a match for this area's intensity.")
@@ -493,6 +498,9 @@ def summary_text(s, risks):
         parts.append(f"The platform's model suggests: {nice(rec['primary'])}.")
     if s.get('requested_business'):
         parts.append(f"You asked about: {nice(s['requested_business'])}. This report focuses on your choice.")
+    elif s.get('target_source') == 'ranked':
+        parts.append(f"This report focuses on {nice(s['target_business'])}, the top pick of the platform's location ranking "
+                     '(crowd level, competition within 1 km and revenue potential).')
     if feas.get('status') == 'ok':
         parts.append(f"The feasibility rules mark it as {'feasible' if feas['feasible'] else 'not feasible'}.")
     if rev.get('status') == 'ok':

@@ -239,7 +239,7 @@
       <div class="cover-item"><div class="label">Location</div><div class="value locname">{{ meta.location_name }}</div>{% if meta.address %}<div class="meta">{{ meta.address }}</div>{% endif %}</div>
       <div class="cover-item"><div class="label">Coordinates</div><div class="value">{{ meta.latitude|floatformat:5 }}, {{ meta.longitude|floatformat:5 }}</div></div>
       <div class="cover-item"><div class="label">Business category</div><div class="value">{% if meta.business %}{{ meta.business }}{% else %}Not available{% endif %}</div>
-        <div class="meta">{% if meta.requested_business %}Selected by you{% elif meta.business %}Top recommendation of the platform's ML model{% endif %}</div></div>
+        <div class="meta">{% if meta.requested_business %}Selected by you{% elif meta.business_source == 'ranked' %}Top-ranked for this location's crowd, competition and revenue data{% elif meta.business %}Top recommendation of the platform's ML model{% endif %}</div></div>
       <div class="cover-item"><div class="label">Analysis radius</div><div class="value">{{ meta.radius_m|floatformat:0 }} m</div></div>
       <div class="cover-item"><div class="label">Generated</div><div class="value">{{ meta.generated_at_local }}</div><div class="meta">{{ meta.generated_at_utc }} UTC</div></div>
       <div class="cover-item"><div class="label">Report reference</div><div class="value">{{ meta.reference }}</div></div>

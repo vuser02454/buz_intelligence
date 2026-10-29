@@ -300,6 +300,7 @@ def build_context(report, snapshot, texts, risks, charts, flows):
             'radius_m': report.radius_m,
             'business': content.nice(snapshot.get('target_business')),
             'requested_business': report.business_type,
+            'business_source': snapshot.get('target_source'),
             'generated_at_local': _fmt_time(now),
             'generated_at_utc': now.strftime('%Y-%m-%d %H:%M'),
             'collected_at_local': _fmt_time(collected),

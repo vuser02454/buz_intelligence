@@ -29,7 +29,10 @@ class CollectAnalysisTests(SimpleTestCase):
         self.assertEqual(s['heatmap']['dominant'], 'low')
         self.assertEqual(len(s['heatmap']['sectors']), 9)
         self.assertEqual(s['recommendation']['status'], 'ok')
-        self.assertEqual(s['target_business'], s['recommendation']['primary'])
+        # The report's business is the top pick of the location ranking (the same run the synergy section shows).
+        self.assertEqual(s['target_source'], 'ranked')
+        self.assertEqual(s['target_business'], s['synergy']['top5'][0]['name'])
+        self.assertEqual(s['candidates'][0]['source'], 'Top-ranked for this location')
         self.assertEqual(s['feasibility']['status'], 'ok')
         self.assertEqual(s['missing'], [])
 
@@ -99,8 +102,21 @@ class CollectAnalysisTests(SimpleTestCase):
         self.assertTrue(all(c.get('revenue_error') for c in s['candidates']))
         self.assertIn('Revenue forecast', [m['item'] for m in s['missing']])
 
-    def test_missing_recommendation_results(self):
+    def test_ml_failure_still_ranks_a_business(self):
         with fake_overpass(), patch('business_intelligence.analysis.build_business_prediction', side_effect=FileNotFoundError):
+            s = collect_analysis(LAT, LON, NAME, 5000)
+        self.assertEqual(s['recommendation']['status'], 'unavailable')
+        self.assertEqual(s['target_source'], 'ranked')
+        self.assertTrue(s['target_business'])
+
+    def test_ranking_failure_falls_back_to_the_ml_label(self):
+        with fake_overpass(), patch('business_intelligence.analysis.recommend_businesses', side_effect=RuntimeError):
+            s = collect_analysis(LAT, LON, NAME, 5000)
+        self.assertEqual(s['target_source'], 'ml')
+        self.assertEqual(s['target_business'], s['recommendation']['primary'])
+
+    def test_missing_recommendation_results(self):
+        with fake_overpass(), patch('business_intelligence.analysis.build_business_prediction', side_effect=FileNotFoundError),                 patch('business_intelligence.analysis.recommend_businesses', side_effect=RuntimeError):
             s = collect_analysis(LAT, LON, NAME, 5000)
         self.assertEqual(s['recommendation']['status'], 'unavailable')
         self.assertEqual(s['target_business'], '')
