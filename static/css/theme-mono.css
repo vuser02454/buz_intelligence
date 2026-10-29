@@ -91,6 +91,27 @@ body.theme-mono .dashboard-sidebar { overflow-x: hidden !important; }
 }
 body.theme-mono .feature-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)) !important; }
 body.theme-mono :is(.feature-hero, .home-hero) { container-type: inline-size !important; }
+body.theme-mono .home-hero {
+    min-height: calc(100vh - 120px) !important;
+    padding: var(--space-7) var(--space-5) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+body.theme-mono .home-hero .hero-title {
+    font-size: clamp(32px, 5.5vw, 68px) !important;
+    line-height: 0.95 !important;
+    margin-bottom: var(--space-4) !important;
+}
+body.theme-mono .home-hero .hero-subtitle {
+    max-width: 680px !important;
+    margin: 0 auto var(--space-6) !important;
+}
+body.theme-mono .home-hero .hero-cta {
+    display: inline-flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
 
 /* -------------------------------------------------------------- typography ---- */
 body.theme-mono :is(h1, h2, h3, h4, h5, h6) { color: inherit !important; line-height: 1.2 !important; margin-top: 0 !important; }
@@ -320,9 +341,9 @@ body.theme-mono .footer-link:hover { color: var(--color-1) !important; }
    300-400 rule for headings and labels. Each rule also targets descendants (except icons),
    because the resets above apply to every element and would otherwise beat inheritance. */
 body.theme-mono :is(.feature-hero-title, .hero-title, .contact-title, .dashboard-title, .recommendations-title, .r3d-title,
-    .syn-title, .fav-section h2, .profile-page h1, .map-top-bar-title, .panel-header h5),
+    .syn-title, .fav-section h2, .profile-page h1, .map-top-bar-title, .panel-header h5, .onboarding-title, .onboarding-welcome-card h2),
 body.theme-mono :is(.feature-hero-title, .hero-title, .contact-title, .dashboard-title, .recommendations-title, .r3d-title,
-    .syn-title, .fav-section h2, .profile-page h1, .map-top-bar-title, .panel-header h5) :not(i, [class*="fa-"], strong, [class*="-sub"]) {
+    .syn-title, .fav-section h2, .profile-page h1, .map-top-bar-title, .panel-header h5, .onboarding-title, .onboarding-welcome-card h2) :not(i, [class*="fa-"], strong, [class*="-sub"]) {
     font-family: var(--font-serif-display) !important; font-weight: 400 !important; text-transform: uppercase !important;
     letter-spacing: -0.01em !important; line-height: 0.95 !important;
 }
@@ -335,7 +356,7 @@ body.theme-mono :is(.contact-title, .dashboard-title, .recommendations-title, .r
     font-size: var(--text-xl) !important;
 }
 body.theme-mono :is(.feature-hero-title, .hero-title, .contact-title, .dashboard-title, .recommendations-title, .r3d-title,
-    .syn-title, .fav-section h2, .profile-page h1) strong {
+    .syn-title, .fav-section h2, .profile-page h1, .onboarding-title, .onboarding-welcome-card h2) strong {
     font-family: var(--font-heavy) !important; font-weight: 800 !important; text-transform: uppercase !important; letter-spacing: -0.035em !important;
 }
 body.theme-mono :is(.feature-tile h3, .fav-card h3, .business-opportunity-card .card-header strong, .profile-card-header h2,
@@ -349,11 +370,11 @@ body.theme-mono :is(.feature-tile h3, .fav-card h3, .business-opportunity-card .
 body.theme-mono :is(.navbar-base .nav-link, .sidebar-link, label, .form-label, .badge, [class*="-label"], [class*="-chip"],
     .feature-hero-badge, .fav-cat, .fav-analysis, .fav-summary-label, .r3d-kpi span, .r3d-tab, .syn-pick-label, .stat-label,
     .btn, .tile-action, .recs-refresh, .fav-open, .r3d-table-toggle, .syn-score-top span, .syn-score-top em,
-    .btn-feature-primary, .btn-feature-outline, .hero-cta, .business-opportunity-card .row.g-2 div > div:first-child),
+    .btn-feature-primary, .btn-feature-outline, .hero-cta, .business-opportunity-card .row.g-2 div > div:first-child, .onboarding-badge, .onboarding-step-counter, .onboarding-subtitle, .welcome-sub, .btn-onboarding-next, .btn-onboarding-prev, .btn-onboarding-skip, .btn-welcome-start, .btn-welcome-skip),
 body.theme-mono :is(.navbar-base .nav-link, .sidebar-link, label, .form-label, .badge, [class*="-label"], [class*="-chip"],
     .feature-hero-badge, .fav-cat, .fav-analysis, .fav-summary-label, .r3d-kpi span, .r3d-tab, .syn-pick-label, .stat-label,
     .btn, .tile-action, .recs-refresh, .fav-open, .r3d-table-toggle, .syn-score-top span, .syn-score-top em,
-    .btn-feature-primary, .btn-feature-outline, .hero-cta, .business-opportunity-card .row.g-2 div > div:first-child) :not(i, [class*="fa-"]) {
+    .btn-feature-primary, .btn-feature-outline, .hero-cta, .business-opportunity-card .row.g-2 div > div:first-child, .onboarding-badge, .onboarding-step-counter, .onboarding-subtitle, .welcome-sub, .btn-onboarding-next, .btn-onboarding-prev, .btn-onboarding-skip, .btn-welcome-start, .btn-welcome-skip) :not(i, [class*="fa-"]) {
     font-family: var(--font-mono) !important; font-size: var(--text-xs) !important; font-weight: 400 !important;
     text-transform: uppercase !important; letter-spacing: 0.04em !important;
 }

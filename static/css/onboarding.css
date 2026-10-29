@@ -1,0 +1,550 @@
+/* ==============================================================================
+   Crowd Heatmap & Business Intelligence - Navigation Onboarding System
+   Adheres to designs/DESIGN.md & Signal-A Studio monochrome design system
+   ============================================================================== */
+
+/* Backdrop overlay - Hidden and non-blocking by default */
+.onboarding-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 10400;
+    opacity: 0;
+    display: none;
+    pointer-events: none;
+    transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.onboarding-backdrop.active {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Spotlight cutout frame over the active target */
+.onboarding-spotlight {
+    position: fixed;
+    z-index: 10401;
+    border-radius: 10px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.72), 0 0 24px rgba(0, 0, 0, 0.6);
+    border: 2px solid #FFFFFF;
+    pointer-events: none;
+    display: none;
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.onboarding-spotlight.active {
+    display: block;
+    opacity: 1;
+}
+
+/* Pulse animation on the spotlight */
+@keyframes onboarding-pulse {
+    0% {
+        outline: 2px solid rgba(255, 255, 255, 0.8);
+        outline-offset: 2px;
+    }
+
+    50% {
+        outline: 4px solid rgba(255, 255, 255, 0.2);
+        outline-offset: 6px;
+    }
+
+    100% {
+        outline: 2px solid rgba(255, 255, 255, 0.8);
+        outline-offset: 2px;
+    }
+}
+
+.onboarding-spotlight.active {
+    animation: onboarding-pulse 2s infinite ease-in-out;
+}
+
+/* Onboarding Popover Container - Hidden and non-blocking by default */
+.onboarding-popover {
+    position: fixed;
+    z-index: 10402;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    background: #FFFFFF;
+    color: #000000;
+    border: 1px solid #000000;
+    border-radius: 10px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+    padding: 24px;
+    opacity: 0;
+    display: none;
+    pointer-events: none;
+    transform: translateY(10px) scale(0.98);
+    transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+        transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+        top 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+        left 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.onboarding-popover.active {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+}
+
+/* Popover Header */
+.onboarding-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.onboarding-badge {
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: #000000;
+    color: #FFFFFF;
+    padding: 3px 8px;
+    border-radius: 1px;
+}
+
+.onboarding-step-counter {
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace;
+    font-size: 11px;
+    color: rgba(0, 0, 0, 0.6);
+    letter-spacing: 0.04em;
+}
+
+.onboarding-close-btn {
+    background: transparent;
+    border: none;
+    color: rgba(0, 0, 0, 0.5);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 6px;
+    margin-left: 8px;
+    border-radius: 4px;
+    transition: color 0.15s, background-color 0.15s;
+}
+
+.onboarding-close-btn:hover {
+    color: #000000;
+    background: rgba(0, 0, 0, 0.06);
+}
+
+/* Popover Title & Subtitle */
+.onboarding-title {
+    font-family: 'Instrument Serif', 'Times New Roman', serif;
+    font-size: 22px;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    margin: 0 0 4px 0;
+    color: #000000;
+}
+
+.onboarding-title strong {
+    font-family: 'Inter Tight', 'Inter', sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+}
+
+.onboarding-subtitle {
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    color: rgba(0, 0, 0, 0.65);
+    margin-bottom: 12px;
+    letter-spacing: 0.03em;
+}
+
+/* Popover Body Content */
+.onboarding-body {
+    font-size: 14px;
+    line-height: 1.55;
+    color: rgba(0, 0, 0, 0.78);
+    margin-bottom: 20px;
+    font-weight: 400;
+}
+
+.onboarding-tip {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.04);
+    border-left: 2px solid #000000;
+    padding: 8px 10px;
+    margin-top: 10px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: rgba(0, 0, 0, 0.72);
+}
+
+.onboarding-tip i {
+    font-size: 12px;
+    margin-top: 2px;
+    color: #000000;
+}
+
+/* Popover Footer & Controls */
+.onboarding-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 14px;
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+/* Progress Dots */
+.onboarding-dots {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.onboarding-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.2);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.onboarding-dot.active {
+    width: 18px;
+    border-radius: 3px;
+    background: #000000;
+}
+
+.onboarding-dot:hover:not(.active) {
+    background: rgba(0, 0, 0, 0.45);
+}
+
+/* Action Buttons */
+.onboarding-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-onboarding-skip {
+    background: transparent;
+    border: none;
+    color: rgba(0, 0, 0, 0.55);
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-radius: 1px;
+    transition: color 0.15s;
+}
+
+.btn-onboarding-skip:hover {
+    color: #000000;
+    text-decoration: underline;
+}
+
+.btn-onboarding-prev {
+    background: transparent;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    color: #000000;
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 6px 12px;
+    cursor: pointer;
+    border-radius: 10px;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.btn-onboarding-prev:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: #000000;
+}
+
+.btn-onboarding-prev:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.btn-onboarding-next {
+    background: #000000;
+    border: 1px solid #000000;
+    color: #FFFFFF;
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 6px 16px;
+    cursor: pointer;
+    border-radius: 10px;
+    transition: transform 0.15s, background-color 0.15s, box-shadow 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-onboarding-next:hover {
+    background: #222222;
+    transform: translateY(-1px);
+}
+
+.btn-onboarding-next:active {
+    transform: translateY(0);
+}
+
+/* Arrow indicator on popover */
+.onboarding-arrow {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: #FFFFFF;
+    border: 1px solid #000000;
+    transform: rotate(45deg);
+    pointer-events: none;
+}
+
+.onboarding-popover[data-popper-placement="bottom"] .onboarding-arrow {
+    top: -6px;
+    left: calc(50% - 5px);
+    border-bottom: none;
+    border-right: none;
+}
+
+.onboarding-popover[data-popper-placement="top"] .onboarding-arrow {
+    bottom: -6px;
+    left: calc(50% - 5px);
+    border-top: none;
+    border-left: none;
+}
+
+.onboarding-popover[data-popper-placement="right"] .onboarding-arrow {
+    left: -6px;
+    top: calc(50% - 5px);
+    border-top: none;
+    border-right: none;
+}
+
+.onboarding-popover[data-popper-placement="left"] .onboarding-arrow {
+    right: -6px;
+    top: calc(50% - 5px);
+    border-bottom: none;
+    border-left: none;
+}
+
+/* ==============================================================================
+   Welcome Onboarding Banner / Modal (Auto-triggered for first-time visitors on Dashboard)
+   ============================================================================== */
+.onboarding-welcome-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 10450;
+    display: none;
+    pointer-events: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s, visibility 0.25s;
+}
+
+.onboarding-welcome-modal.show {
+    display: flex;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.onboarding-welcome-card {
+    background: #FFFFFF;
+    color: #000000;
+    border: 1px solid #000000;
+    border-radius: 10px;
+    width: 520px;
+    max-width: 95vw;
+    padding: 32px;
+    position: relative;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4);
+    transform: translateY(20px) scale(0.97);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.onboarding-welcome-modal.show .onboarding-welcome-card {
+    transform: translateY(0) scale(1);
+}
+
+.onboarding-welcome-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
+    background: #000000;
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    margin-bottom: 20px;
+}
+
+.onboarding-welcome-card h2 {
+    font-family: 'Instrument Serif', 'Times New Roman', serif;
+    font-size: 28px;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+    margin: 0 0 6px 0;
+    color: #000000;
+}
+
+.onboarding-welcome-card h2 strong {
+    font-family: 'Inter Tight', 'Inter', sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+}
+
+.onboarding-welcome-card .welcome-sub {
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    color: rgba(0, 0, 0, 0.6);
+    letter-spacing: 0.04em;
+    margin-bottom: 16px;
+}
+
+.onboarding-welcome-card p {
+    font-size: 14px;
+    line-height: 1.6;
+    color: rgba(0, 0, 0, 0.75);
+    margin-bottom: 24px;
+}
+
+.onboarding-highlights-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 24px 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+@media (max-width: 576px) {
+    .onboarding-highlights-list {
+        grid-template-columns: 1fr;
+    }
+}
+
+.onboarding-highlights-list li {
+    font-size: 13px;
+    color: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.onboarding-highlights-list li i {
+    color: #000000;
+    font-size: 13px;
+}
+
+.onboarding-welcome-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.btn-welcome-start {
+    background: #000000;
+    border: 1px solid #000000;
+    color: #FFFFFF;
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 10px 22px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background-color 0.15s, transform 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-welcome-start:hover {
+    background: #222222;
+    transform: translateY(-1px);
+}
+
+.btn-welcome-skip {
+    background: transparent;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    color: rgba(0, 0, 0, 0.7);
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 10px 18px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.btn-welcome-skip:hover {
+    color: #000000;
+    border-color: #000000;
+}
+
+/* Navigation buttons in navbar and sidebar */
+.btn-nav-tour {
+    font-family: 'IBM Plex Mono', 'GT America Mono', monospace !important;
+    font-size: 12px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+    border-radius: 10px !important;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Mobile adjustments */
+@media (max-width: 576px) {
+    .onboarding-popover {
+        width: calc(100vw - 24px) !important;
+        left: 12px !important;
+        bottom: 16px !important;
+        top: auto !important;
+        padding: 18px;
+    }
+
+    .onboarding-arrow {
+        display: none !important;
+    }
+}

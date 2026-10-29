@@ -37,6 +37,11 @@
             <a href="{% url 'favorites' %}" id="sidebar-favorites-link" class="sidebar-link">
                 <i class="fas fa-heart me-3"></i>Favorites
             </a>
+            <a href="#" id="sidebar-tour-link" class="sidebar-link" role="button" title="Interactive Navigation Tour">
+                <i class="fas fa-compass me-3"></i>Guided Tour
+            </a>
+                <i class="fas fa-heart me-3"></i>Favorites
+            </a>
 
             <a href="{% url 'home' %}" class="sidebar-link">
                 <i class="fas fa-arrow-left me-3"></i>Back to Map
@@ -72,7 +77,10 @@
             <button type="button" id="sidebar-toggle-btn" class="sidebar-toggle-btn" aria-label="Toggle sidebar">
                 <i class="fas fa-bars"></i>
             </button>
-            <div class="dashboard-header-actions ms-auto">
+            <div class="dashboard-header-actions ms-auto d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-dark btn-sm btn-nav-tour" id="dashboard-tour-header-btn" title="Start Interactive Navigation Tour">
+                    <i class="fas fa-compass me-1"></i>Tour
+                </button>
                 <div id="dashboard-header-auth-pill" class="d-flex align-items-center gap-2"></div>
             </div>
         </header>

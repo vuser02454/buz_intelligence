@@ -137,6 +137,21 @@ revenue engine. They are not measured sales, and the UI labels them that way.
 * You can also search saved locations, remove them, or tick them for the comparison PDF.
 * "Recommended for you" ranks places by what other users save, your own saves, and distance.
 
+### Navigation onboarding & interactive tour
+* **First-time welcome prompt:** First-time visitors are welcomed with an onboarding modal dialog offering a 1-minute guided navigation tour (or skip). The user's preference is remembered in `localStorage`.
+* **Spotlight and focused navigation:** A dynamic spotlight with an animated focus ring isolates and centers key interface elements as the user progresses.
+* **8-Step guided walkthrough:**
+  1. *Platform Overview:* Central command hub and spatial analytics scope.
+  2. *Sidebar Navigation:* Instant access to Dashboard, Live Map, Business Analytics, Recommendations, and Saved Favorites.
+  3. *Live Crowd Heatmap & Search:* 5 km radius analysis across 9 color-coded crowd density sectors.
+  4. *3D Projected Revenue Analytics:* Interactive 3D bar graph across Live (WebSockets), Daily, Weekly, and Monthly horizons with commercial synergy uplift scores.
+  5. *Top 5 Business Recommendations:* Machine learning decision tree recommendations with revenue forecasts, break-even timelines, and local competition counts.
+  6. *Startup Feasibility Check:* Go/No-Go validation before committing capital.
+  7. *AI Assistant & PDF Reports:* Floating AI assistant chatbot and one-click generation of 20–25 page intelligence dossiers.
+  8. *Completion & Launch:* Final wrap-up with a one-click CTA to launch the live map.
+* **Controls & Accessibility:** Step counter badges, clickable progress dots, Back/Next navigation, keyboard shortcuts (`ArrowRight`, `ArrowLeft`, `Escape`), and auto-scroll viewport repositioning.
+* **Restart anytime:** Can be relaunched at any time from the **Guide** link in the top navbar, the **Guided Tour** link in the dashboard sidebar, or the **Tour** button in the dashboard header.
+
 ### Look and feel
 * Signed-in pages follow the design system in `designs/DESIGN.md` (`static/css/theme-mono.css`).
 * **Palette:** white `#FFFFFF` background with black `#000000` text and hairlines. The map and
@@ -237,10 +252,10 @@ Browser (Leaflet map, dashboard, Three.js graph, chatbot)
 │                              single-location and favorites-comparison reports
 ├── templates/                 base, dashboard, login, auth callback, favorites, profile, report templates
 ├── static/
-│   ├── css/style.css
-│   └── js/  main.js · supabase-auth.js · revenue-3d.js · report-generator.js · favorites.js · dashboard-form.js
+│   ├── css/ style.css · theme-mono.css · onboarding.css
+│   └── js/  main.js · supabase-auth.js · revenue-3d.js · report-generator.js · favorites.js · dashboard-form.js · synergy.js · onboarding.js
 ├── supabase/                  SQL to run once in Supabase (favorites, history, security fixes)
-├── tests/js/                  frontend tests (jsdom)
+├── tests/js/                  frontend tests (jsdom: favorites, map-analysis, report-generator, revenue-3d, supabase-auth, synergy, onboarding)
 ├── docs/                      extra guides and screenshots
 ├── run.sh · run.py · run.ps1 · run.bat · Makefile · Procfile · Dockerfile
 └── requirements.txt · package.json
@@ -356,7 +371,7 @@ Step-by-step details: [MANUAL_STEPS.md](MANUAL_STEPS.md).
 ```bash
 ./run.sh test        # Django: 181 tests (no network access needed)
 npm install
-npm run test:js      # Frontend (jsdom): 46 tests
+npm run test:js      # Frontend (jsdom): 71 tests
 ```
 
 The tests cover:
@@ -365,7 +380,8 @@ The tests cover:
 * the revenue time series (deterministic, consistent totals) and the WebSocket consumer;
 * auth pages, validators, report generation and favorites export;
 * the startup form;
-* map flows (selected area, stale responses, zoom to pin) and the 3D graph's states and formatting.
+* map flows (selected area, stale responses, zoom to pin) and the 3D graph's states and formatting;
+* interactive navigation onboarding tour flow, spotlighting, keyboard navigation, and completion persistence.
 
 ---
 
