@@ -32,8 +32,8 @@
             badge: 'Navigation',
             body: 'Use the sidebar to effortlessly navigate between the Dashboard Launchpad, Live Heatmap, Business Analytics, AI Recommendations, Startup Feasibility Form, and Saved Favorites.',
             tip: 'On mobile, open the sidebar using the hamburger icon in the top bar.',
-            target: '.dashboard-sidebar',
-            fallbackTarget: '.navbar-base',
+            target: '.dashboard-sidebar .sidebar-nav',
+            fallbackTarget: ['#sidebar-toggle-btn', '.navbar-base .navbar-nav', '.navbar-toggler'],
             placement: 'right'
         },
         {
@@ -66,8 +66,8 @@
             body: 'Our trained decision-tree model and revenue engine identify the Top 5 most viable businesses to open in the area, providing projected revenue, profit, break-even timelines, and local competition analysis.',
             tip: 'Filter by category or click "View on Live Map" to pinpoint optimal sectors.',
             target: '#btn-show-recommendations',
-            fallbackTarget: '#sidebar-recs-link',
-            placement: 'top'
+            fallbackTarget: ['#sidebar-recs-link', '.feature-tile.tile-ai'],
+            placement: 'bottom'
         },
         {
             id: 'startup_form',
@@ -118,8 +118,11 @@
             this.spotlightEl = null;
             this.popoverEl = null;
             this.welcomeModalEl = null;
+            this.targetEl = null;
+            this.scrollFrame = null;
             this.boundKeyHandler = this._handleKeyDown.bind(this);
             this.boundResizeHandler = this._handleResize.bind(this);
+            this.boundScrollHandler = this._handleScroll.bind(this);
         }
 
         init() {
@@ -138,6 +141,12 @@
             const forceTour = urlParams && urlParams.get('tour') === 'true';
 
             if (forceTour) {
+                // Drop ?tour=true so a page refresh doesn't restart the tour
+                try {
+                    urlParams.delete('tour');
+                    const query = urlParams.toString();
+                    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
+                } catch (e) {}
                 setTimeout(() => {
                     this.start(0);
                 }, 300);
@@ -272,7 +281,11 @@
             `;
             document.body.appendChild(this.welcomeModalEl);
 
-            this.welcomeModalEl.querySelector('#welcome-modal-close').addEventListener('click', () => this.hideWelcomeModal());
+            // Closing the welcome card counts as skipping, so it isn't shown again
+            this.welcomeModalEl.querySelector('#welcome-modal-close').addEventListener('click', () => {
+                this.markCompleted();
+                this.hideWelcomeModal();
+            });
             this.welcomeModalEl.querySelector('#btn-welcome-skip').addEventListener('click', () => {
                 this.markCompleted();
                 this.hideWelcomeModal();
@@ -324,19 +337,22 @@
 
             window.addEventListener('keydown', this.boundKeyHandler);
             window.addEventListener('resize', this.boundResizeHandler);
+            window.addEventListener('scroll', this.boundScrollHandler, true);
 
             this._renderStep();
         }
 
         exit() {
             this.isActive = false;
-            if (this.backdropEl) this.backdropEl.classList.remove('active');
+            this.targetEl = null;
+            if (this.backdropEl) this.backdropEl.classList.remove('active', 'has-spotlight');
             if (this.spotlightEl) this.spotlightEl.classList.remove('active');
             if (this.popoverEl) this.popoverEl.classList.remove('active');
             if (this.welcomeModalEl) this.welcomeModalEl.classList.remove('show');
 
             window.removeEventListener('keydown', this.boundKeyHandler);
             window.removeEventListener('resize', this.boundResizeHandler);
+            window.removeEventListener('scroll', this.boundScrollHandler, true);
 
             this.markCompleted();
 
@@ -374,14 +390,8 @@
             const step = STEPS[this.currentStep];
             if (!step || !this.popoverEl) return;
 
-            // Target element resolution
-            let targetEl = null;
-            if (step.target) {
-                targetEl = document.querySelector(step.target);
-            }
-            if (!targetEl && step.fallbackTarget) {
-                targetEl = document.querySelector(step.fallbackTarget);
-            }
+            // First target that exists and is visible on this page; none means a centered card
+            const targetEl = step.placement === 'center' ? null : this._resolveTarget(step);
 
             // Update contents
             const badgeEl = this.popoverEl.querySelector('#onboarding-step-badge');
@@ -429,6 +439,8 @@
             });
 
             // Position spotlight & popover
+            this.targetEl = targetEl;
+            this._scrollTargetIntoView(targetEl);
             this._positionTour(targetEl, step.placement, step.showArrow !== false);
 
             try {
@@ -438,17 +450,65 @@
             } catch (e) {}
         }
 
+        _resolveTarget(step) {
+            const selectors = [].concat(step.target || [], step.fallbackTarget || []);
+            for (const selector of selectors) {
+                const el = document.querySelector(selector);
+                if (el && this._isVisible(el)) return el;
+            }
+            return null;
+        }
+
+        _isVisible(el) {
+            if (typeof el.getBoundingClientRect !== 'function') return false;
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 1 || rect.height < 1) return false;
+
+            const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+            if (style && (style.visibility === 'hidden' || style.display === 'none')) return false;
+
+            // Off-canvas horizontally, e.g. the collapsed sidebar at phone width
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+            if (rect.right <= 0 || rect.left >= viewportWidth) return false;
+
+            // Covered by another layer, e.g. a button tucked under the sticky navbar.
+            // Only checkable while on screen; targets below the fold get scrolled to.
+            if (typeof document.elementsFromPoint !== 'function') return true;
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            if (y < 0 || y > (window.innerHeight || 0) || x < 0 || x > viewportWidth) return true;
+            const tourLayers = [this.backdropEl, this.spotlightEl, this.popoverEl, this.welcomeModalEl];
+            const topEl = document.elementsFromPoint(x, y)
+                .find(node => !tourLayers.some(layer => layer && layer.contains(node)));
+            return !topEl || el === topEl || el.contains(topEl);
+        }
+
+        _scrollTargetIntoView(targetEl) {
+            if (!targetEl || typeof targetEl.scrollIntoView !== 'function') return;
+            const rect = targetEl.getBoundingClientRect();
+            const viewportHeight = window.innerHeight || 800;
+            // Leave room for the sticky navbar at the top
+            if (rect.top < 64 || rect.bottom > viewportHeight - 16) {
+                // Park the target just below the navbar so the card has room under it
+                // (on a phone a centered target leaves no space above or below).
+                // 'instant' so the rect measured right after is already final.
+                const previousMargin = targetEl.style.scrollMarginTop;
+                targetEl.style.scrollMarginTop = '96px';
+                try {
+                    targetEl.scrollIntoView({ behavior: 'instant', block: 'start', inline: 'nearest' });
+                } catch (e) {}
+                targetEl.style.scrollMarginTop = previousMargin;
+            }
+        }
+
         _positionTour(targetEl, preferredPlacement, showArrow) {
             const arrowEl = this.popoverEl.querySelector('#onboarding-arrow');
-            if (arrowEl) {
-                arrowEl.style.display = showArrow ? 'block' : 'none';
-            }
 
-            // If no target element or placement is 'center', position in center of screen
+            // No target on this page (or an intro/outro step): centered card over a light dim
             if (!targetEl || preferredPlacement === 'center') {
-                if (this.spotlightEl) {
-                    this.spotlightEl.classList.remove('active');
-                }
+                if (this.spotlightEl) this.spotlightEl.classList.remove('active');
+                if (this.backdropEl) this.backdropEl.classList.remove('has-spotlight');
+                if (arrowEl) arrowEl.style.display = 'none';
                 this.popoverEl.removeAttribute('data-popper-placement');
                 this.popoverEl.style.top = '50%';
                 this.popoverEl.style.left = '50%';
@@ -456,76 +516,87 @@
                 return;
             }
 
-            // Scroll target into view if outside
-            try {
-                targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-            } catch (e) {}
-
-            // Calculate rect of target
-            const rect = (typeof targetEl.getBoundingClientRect === 'function')
-                ? targetEl.getBoundingClientRect()
-                : { top: 100, left: 100, width: 200, height: 50, bottom: 150, right: 300 };
+            const rect = targetEl.getBoundingClientRect();
+            const viewportWidth = window.innerWidth || 1200;
+            const viewportHeight = window.innerHeight || 800;
             const pad = 6;
 
-            // Highlight target with spotlight
+            // The spotlight's own shadow dims the page, leaving the target cut out
             if (this.spotlightEl) {
-                this.spotlightEl.style.top = `${Math.max(0, rect.top - pad)}px`;
-                this.spotlightEl.style.left = `${Math.max(0, rect.left - pad)}px`;
-                this.spotlightEl.style.width = `${rect.width + pad * 2}px`;
-                this.spotlightEl.style.height = `${rect.height + pad * 2}px`;
+                const spotTop = Math.max(2, rect.top - pad);
+                const spotLeft = Math.max(2, rect.left - pad);
+                const spotBottom = Math.min(viewportHeight - 2, rect.bottom + pad);
+                const spotRight = Math.min(viewportWidth - 2, rect.right + pad);
+                this.spotlightEl.style.top = `${spotTop}px`;
+                this.spotlightEl.style.left = `${spotLeft}px`;
+                this.spotlightEl.style.width = `${Math.max(0, spotRight - spotLeft)}px`;
+                this.spotlightEl.style.height = `${Math.max(0, spotBottom - spotTop)}px`;
                 this.spotlightEl.classList.add('active');
             }
+            if (this.backdropEl) this.backdropEl.classList.add('has-spotlight');
 
-            // Popover dimensions & positioning
             const popoverWidth = this.popoverEl.offsetWidth || 380;
             const popoverHeight = this.popoverEl.offsetHeight || 260;
-            const viewportWidth = (typeof window !== 'undefined' ? window.innerWidth : 1200) || 1200;
-            const viewportHeight = (typeof window !== 'undefined' ? window.innerHeight : 800) || 800;
-            const margin = 14;
+            const margin = 12;
+            const gap = 16;
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
 
-            let placement = preferredPlacement || 'bottom';
-            let top = 0;
-            let left = 0;
+            const space = {
+                top: rect.top - gap - margin,
+                bottom: viewportHeight - rect.bottom - gap - margin,
+                left: rect.left - gap - margin,
+                right: viewportWidth - rect.right - gap - margin
+            };
+            const fits = {
+                top: space.top >= popoverHeight,
+                bottom: space.bottom >= popoverHeight,
+                left: space.left >= popoverWidth,
+                right: space.right >= popoverWidth
+            };
+            const opposite = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
+            const preferred = fits.hasOwnProperty(preferredPlacement) ? preferredPlacement : 'bottom';
+            const order = [preferred, opposite[preferred], 'bottom', 'top', 'right', 'left'];
+            let placement = order.find(p => fits[p]) || null;
 
-            // Determine optimal placement based on screen boundary limits
-            if (placement === 'bottom') {
-                top = rect.bottom + margin;
-                left = rect.left + (rect.width / 2) - (popoverWidth / 2);
-                if (top + popoverHeight > viewportHeight - margin && rect.top - popoverHeight - margin > margin) {
-                    placement = 'top';
-                    top = rect.top - popoverHeight - margin;
-                }
-            } else if (placement === 'top') {
-                top = rect.top - popoverHeight - margin;
-                left = rect.left + (rect.width / 2) - (popoverWidth / 2);
-                if (top < margin && rect.bottom + popoverHeight + margin < viewportHeight - margin) {
-                    placement = 'bottom';
-                    top = rect.bottom + margin;
-                }
-            } else if (placement === 'right') {
-                left = rect.right + margin;
-                top = rect.top + (rect.height / 2) - (popoverHeight / 2);
-                if (left + popoverWidth > viewportWidth - margin && rect.left - popoverWidth - margin > margin) {
-                    placement = 'left';
-                    left = rect.left - popoverWidth - margin;
-                }
-            } else if (placement === 'left') {
-                left = rect.left - popoverWidth - margin;
-                top = rect.top + (rect.height / 2) - (popoverHeight / 2);
-                if (left < margin && rect.right + popoverWidth + margin < viewportWidth - margin) {
-                    placement = 'right';
-                    left = rect.right + margin;
-                }
+            let top;
+            let left;
+            if (placement === 'bottom' || placement === 'top') {
+                top = placement === 'bottom' ? rect.bottom + gap : rect.top - gap - popoverHeight;
+                left = centerX - popoverWidth / 2;
+            } else if (placement === 'left' || placement === 'right') {
+                left = placement === 'right' ? rect.right + gap : rect.left - gap - popoverWidth;
+                top = centerY - popoverHeight / 2;
+            } else {
+                // Nothing fits (tall target on a small screen): pin the card to the
+                // viewport edge furthest from the target so the target stays visible
+                left = centerX - popoverWidth / 2;
+                top = centerY < viewportHeight / 2 ? viewportHeight - popoverHeight - margin : margin;
             }
 
-            // Clamp inside viewport
             left = Math.max(margin, Math.min(left, viewportWidth - popoverWidth - margin));
             top = Math.max(margin, Math.min(top, viewportHeight - popoverHeight - margin));
 
-            this.popoverEl.setAttribute('data-popper-placement', placement);
+            if (placement) {
+                this.popoverEl.setAttribute('data-popper-placement', placement);
+            } else {
+                this.popoverEl.removeAttribute('data-popper-placement');
+            }
             this.popoverEl.style.top = `${top}px`;
             this.popoverEl.style.left = `${left}px`;
             this.popoverEl.style.transform = 'none';
+
+            // Point the arrow at the target's center, even when the card was clamped
+            if (arrowEl) {
+                arrowEl.style.display = showArrow && placement ? 'block' : 'none';
+                if (placement === 'top' || placement === 'bottom') {
+                    arrowEl.style.left = `${Math.max(14, Math.min(centerX - left - 5, popoverWidth - 24))}px`;
+                    arrowEl.style.top = '';
+                } else if (placement) {
+                    arrowEl.style.top = `${Math.max(14, Math.min(centerY - top - 5, popoverHeight - 24))}px`;
+                    arrowEl.style.left = '';
+                }
+            }
         }
 
         _handleKeyDown(e) {
@@ -545,6 +616,18 @@
         _handleResize() {
             if (!this.isActive) return;
             this._renderStep();
+        }
+
+        _handleScroll() {
+            if (!this.isActive || !this.targetEl || this.scrollFrame) return;
+            // Keep the spotlight and card glued to the target while the page scrolls
+            this.scrollFrame = window.requestAnimationFrame(() => {
+                this.scrollFrame = null;
+                const step = STEPS[this.currentStep];
+                if (this.isActive && this.targetEl && step) {
+                    this._positionTour(this.targetEl, step.placement, step.showArrow !== false);
+                }
+            });
         }
     }
 

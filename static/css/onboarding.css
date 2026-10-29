@@ -3,16 +3,15 @@
    Adheres to designs/DESIGN.md & Signal-A Studio monochrome design system
    ============================================================================== */
 
-/* Backdrop overlay - Hidden and non-blocking by default */
+/* Backdrop overlay - Hidden and non-blocking by default.
+   A light, unblurred dim so the page stays readable behind centered steps. */
 .onboarding-backdrop {
     position: fixed;
     top: 0;
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.72);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    background: rgba(0, 0, 0, 0.32);
     z-index: 10400;
     opacity: 0;
     display: none;
@@ -26,43 +25,47 @@
     pointer-events: auto;
 }
 
-/* Spotlight cutout frame over the active target */
+/* While a target is spotlit the backdrop only catches clicks;
+   the spotlight's outline does the dimming so the target stays cut out and sharp */
+.onboarding-backdrop.active.has-spotlight {
+    background: transparent;
+}
+
+/* Spotlight cutout frame over the active target.
+   The dim is a huge outline rather than a box-shadow: theme-mono removes every
+   box-shadow from a cascade layer, which an unlayered !important can't override. */
 .onboarding-spotlight {
     position: fixed;
     z-index: 10401;
     border-radius: 10px;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.72), 0 0 24px rgba(0, 0, 0, 0.6);
-    border: 2px solid #FFFFFF;
+    border: 2px solid #000000;
+    background: transparent;
+    outline: 9999px solid rgba(0, 0, 0, 0.38);
+    outline-offset: 0;
     pointer-events: none;
     display: none;
     opacity: 0;
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: top 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+        left 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+        width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+        height 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+        opacity 0.2s;
+}
+
+/* Pulse the frame so the eye lands on the target */
+@keyframes onboarding-pulse {
+    0%, 100% {
+        border-color: #000000;
+    }
+
+    50% {
+        border-color: rgba(0, 0, 0, 0.3);
+    }
 }
 
 .onboarding-spotlight.active {
     display: block;
     opacity: 1;
-}
-
-/* Pulse animation on the spotlight */
-@keyframes onboarding-pulse {
-    0% {
-        outline: 2px solid rgba(255, 255, 255, 0.8);
-        outline-offset: 2px;
-    }
-
-    50% {
-        outline: 4px solid rgba(255, 255, 255, 0.2);
-        outline-offset: 6px;
-    }
-
-    100% {
-        outline: 2px solid rgba(255, 255, 255, 0.8);
-        outline-offset: 2px;
-    }
-}
-
-.onboarding-spotlight.active {
     animation: onboarding-pulse 2s infinite ease-in-out;
 }
 
@@ -71,7 +74,9 @@
     position: fixed;
     z-index: 10402;
     width: 380px;
-    max-width: calc(100vw - 32px);
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
     background: #FFFFFF;
     color: #000000;
     border: 1px solid #000000;
@@ -203,6 +208,8 @@
     justify-content: space-between;
     padding-top: 14px;
     border-top: 1px solid rgba(0, 0, 0, 0.12);
+    flex-wrap: wrap;
+    gap: 10px;
 }
 
 /* Progress Dots */
@@ -238,6 +245,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    margin-left: auto;
+    white-space: nowrap;
 }
 
 .btn-onboarding-skip {
@@ -358,9 +367,7 @@
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(0, 0, 0, 0.32);
     z-index: 10450;
     display: none;
     pointer-events: none;
@@ -536,15 +543,13 @@
 
 /* Mobile adjustments */
 @media (max-width: 576px) {
+    /* The script places the card next to the target and clamps it on screen */
     .onboarding-popover {
-        width: calc(100vw - 24px) !important;
-        left: 12px !important;
-        bottom: 16px !important;
-        top: auto !important;
+        width: calc(100vw - 24px);
         padding: 18px;
     }
 
-    .onboarding-arrow {
-        display: none !important;
+    .onboarding-body {
+        margin-bottom: 14px;
     }
 }
