@@ -20,8 +20,8 @@
       <td>{{ r.likelihood|level_word }}</td>
       <td>{{ r.impact|level_word }}</td>
       <td>{% if r.basis == 'measured' %}<span class="tag tag-observed">Platform data</span>{% else %}<span class="tag tag-template">Judgement</span>{% endif %}</td>
-      <td class="small">{{ r.evidence }} <span class="muted">{{ r.rule }}</span></td>
-      <td class="small">{{ r.mitigation }}</td>
+      <td class="small">{{ r.evidence|highlight }} <span class="muted">{{ r.rule }}</span></td>
+      <td class="small">{{ r.mitigation|highlight }}</td>
     </tr>
   {% endfor %}
   </tbody>

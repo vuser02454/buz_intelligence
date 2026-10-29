@@ -20,10 +20,10 @@
   <h4>{{ forloop.counter }}. {{ step.title }} <span class="muted small">· about {{ step.weeks }} week{{ step.weeks|pluralize }} (estimate)</span></h4>
   <p><strong>Objective:</strong> {{ step.objective }}</p>
   <div class="grid">
-    <div><strong>Actions</strong><ul>{% for a in step.actions %}<li>{{ a }}</li>{% endfor %}</ul></div>
-    <div><strong>Evidence to collect</strong><ul>{% for e in step.evidence %}<li>{{ e }}</li>{% endfor %}</ul>
-      <strong>Expected outcome</strong><p>{{ step.outcome }}</p></div>
-    <div><strong>Dependencies / risks</strong><p>{{ step.risks }}</p></div>
+    <div><strong>Actions</strong><ul>{% for a in step.actions %}<li>{{ a|highlight }}</li>{% endfor %}</ul></div>
+    <div><strong>Evidence to collect</strong><ul>{% for e in step.evidence %}<li>{{ e|highlight }}</li>{% endfor %}</ul>
+      <strong>Expected outcome</strong><p>{{ step.outcome|highlight }}</p></div>
+    <div><strong>Dependencies / risks</strong><p>{{ step.risks|highlight }}</p></div>
   </div>
 </div>
 {% endfor %}

@@ -11,17 +11,28 @@
   {% endfor %}
 </div>
 
+<div class="keypoints">
+  <div class="label">Key points at a glance</div>
+  <ul>
+    {% if t.summary.data.final_recommendation %}<li><strong>Verdict:</strong> {{ t.summary.data.final_recommendation|highlight }}</li>{% endif %}
+    {% if s.revenue.status == 'ok' and s.revenue.scenarios %}<li><strong>Base-case gross sales:</strong> {{ s.revenue.scenarios.base|inr|highlight }} per month <span class="tag tag-estimate">Estimate</span></li>{% endif %}
+    {% with t.summary.data.key_advantages|first as adv %}{% if adv %}<li><strong>Biggest advantage:</strong> {{ adv|highlight }}</li>{% endif %}{% endwith %}
+    {% with t.summary.data.key_risks|first as risk %}{% if risk %}<li><strong>Biggest risk:</strong> {{ risk|highlight }}</li>{% endif %}{% endwith %}
+    {% with t.summary.data.next_steps|first as step %}{% if step %}<li><strong>First step:</strong> {{ step|highlight }}</li>{% endif %}{% endwith %}
+  </ul>
+</div>
+
 <h3>Summary {% include "reports/sections/_src.html" with st=t.summary %}</h3>
-<p>{{ t.summary.data.executive_summary }}</p>
+<p>{{ t.summary.data.executive_summary|highlight }}</p>
 
 <div class="two-col">
   <div>
     <h4>Main advantages</h4>
-    <ul>{% for x in t.summary.data.key_advantages %}<li>{{ x }}</li>{% endfor %}</ul>
+    <ul>{% for x in t.summary.data.key_advantages %}<li>{{ x|highlight }}</li>{% endfor %}</ul>
   </div>
   <div>
     <h4>Main risks</h4>
-    <ul>{% for x in t.summary.data.key_risks %}<li>{{ x }}</li>{% endfor %}</ul>
+    <ul>{% for x in t.summary.data.key_risks %}<li>{{ x|highlight }}</li>{% endfor %}</ul>
   </div>
 </div>
 
@@ -34,10 +45,10 @@
 {% endif %}
 
 <h4>Recommended next steps</h4>
-<ol>{% for x in t.summary.data.next_steps %}<li>{{ x }}</li>{% endfor %}</ol>
+<ol>{% for x in t.summary.data.next_steps %}<li>{{ x|highlight }}</li>{% endfor %}</ol>
 
 {% if s.missing %}
 <div class="note-box"><strong>Missing information.</strong>
-  <ul class="small">{% for m in s.missing %}<li><strong>{{ m.item }}:</strong> {{ m.reason }}</li>{% endfor %}</ul>
+  <ul class="small">{% for m in s.missing %}<li><strong>{{ m.item }}:</strong> {{ m.reason|highlight }}</li>{% endfor %}</ul>
 </div>
 {% endif %}

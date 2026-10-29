@@ -17,7 +17,7 @@
 </div>
 
 <h3>What the forecast means {% include "reports/sections/_src.html" with st=t.revenue %}</h3>
-<p>{{ t.revenue.data.revenue_explanation }}</p>
+<p>{{ t.revenue.data.revenue_explanation|highlight }}</p>
 
 <h3>Scenarios</h3>
 {% if s.revenue.scenarios %}
@@ -29,7 +29,7 @@
     <tr><td>Optimistic</td><td class="num">{{ s.revenue.scenarios.optimistic|inr }}</td><td class="small">Upper end of the engine's range</td></tr>
   </tbody>
 </table>
-<p>{{ t.revenue.data.scenario_explanation }}</p>
+<p>{{ t.revenue.data.scenario_explanation|highlight }}</p>
 {% if charts.scenarios %}
 <figure>
   <img class="chart" src="{{ charts.scenarios }}" alt="Revenue scenarios">

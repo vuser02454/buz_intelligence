@@ -156,6 +156,17 @@
   .pill-yes { color: #2F7D4B; border-color: #3E9B5F; }
   .pill-no { color: #B33A3A; border-color: #D64545; }
 
+  /* ---------- Highlights: figures get a marker stroke, decision terms go bold royal ---------- */
+  mark.hl-num { background: #FCE7A8; color: #0E1A3B; font-weight: 700; padding: 0 0.6mm; }
+  b.hl-kw { font-weight: 700; color: #2443D6; }
+  .statement b.hl-kw { font-weight: 600; }
+  .keypoints { border: 1pt solid #2443D6; background: #FBF8F2; padding: 4mm 5mm 2mm; margin: 2mm 0 6mm; break-inside: avoid; color: #1F1F23; }
+  .keypoints .label { font-family: "DM Mono", "DM Sans", "Report Fallback", monospace; font-size: 6.8pt; font-weight: 500;
+                      letter-spacing: 0.16em; text-transform: uppercase; color: #2443D6; margin-bottom: 2mm; }
+  .keypoints ul { margin-bottom: 1.5mm; }
+  .keypoints li { margin-bottom: 1.6mm; }
+  .keypoints strong { color: #0E1A3B; }
+
   .two-col { display: flex; gap: 8mm; }
   .two-col > div { flex: 1; }
 
@@ -203,6 +214,12 @@
   .pg-dark .pill-empty { color: #C3CBE6; border-color: #7F8DB8; }
   .pg-dark .checklist li { border-bottom-color: rgba(244, 239, 230, 0.22); }
   .pg-dark .checklist li::before { color: #F4EFE6; }
+  .pg-dark mark.hl-num { background: #F2C98A; color: #0E1A3B; }
+  .pg-dark b.hl-kw { color: #FFFFFF; text-decoration: underline; text-decoration-color: #C9D2F6; }
+  .pg-dark .keypoints b.hl-kw { color: #2443D6; text-decoration: none; }
+  .pg-dark .keypoints li::marker { color: #2443D6; }
+  .pg-dark .keypoints strong { color: #0E1A3B; }
+  .pg-dark .keypoints .tag-estimate { color: #A0611A; border-color: #C98A3A; }
   /* Flowcharts and charts keep their ivory card on dark pages, so their colours stay readable. */
   .pg-dark figure.flow { border-color: transparent; color: #1F1F23; }
   .pg-dark figure.flow figcaption { color: #6E6758; }

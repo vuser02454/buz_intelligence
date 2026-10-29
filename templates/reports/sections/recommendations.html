@@ -43,11 +43,11 @@
 {% for r in t.heatmap_recs.data.recommendations %}
 <div class="step">
   <h4>{{ r.business }}</h4>
-  <p>{{ r.why }}</p>
+  <p>{{ r.why|highlight }}</p>
   <div class="grid">
-    <div><strong>Strengths</strong><ul>{% for x in r.strengths %}<li>{{ x }}</li>{% endfor %}</ul></div>
-    <div><strong>Weaknesses</strong><ul>{% for x in r.weaknesses %}<li>{{ x }}</li>{% endfor %}</ul></div>
-    <div><strong>How to validate</strong><ul>{% for x in r.validation_steps %}<li>{{ x }}</li>{% endfor %}</ul></div>
+    <div><strong>Strengths</strong><ul>{% for x in r.strengths %}<li>{{ x|highlight }}</li>{% endfor %}</ul></div>
+    <div><strong>Weaknesses</strong><ul>{% for x in r.weaknesses %}<li>{{ x|highlight }}</li>{% endfor %}</ul></div>
+    <div><strong>How to validate</strong><ul>{% for x in r.validation_steps %}<li>{{ x|highlight }}</li>{% endfor %}</ul></div>
   </div>
 </div>
 {% empty %}

@@ -1,7 +1,7 @@
 {% load report_tags %}
 <h2 class="section" id="sec-final"><span class="num">11</span>&nbsp;Final recommendations</h2>
 
-<div class="callout"><p class="statement">{{ t.summary.data.final_recommendation }}</p>{% include "reports/sections/_src.html" with st=t.summary %}</div>
+<div class="callout"><p class="statement">{{ t.summary.data.final_recommendation|highlight }}</p>{% include "reports/sections/_src.html" with st=t.summary %}</div>
 
 {% if s.candidates %}
 <h3>Most promising candidates, by the platform's measures</h3>
@@ -14,7 +14,7 @@
 {% endif %}
 
 <h3>Questions you still need to answer</h3>
-<ul>{% for q in t.summary.data.open_questions %}<li>{{ q }}</li>{% endfor %}</ul>
+<ul>{% for q in t.summary.data.open_questions %}<li>{{ q|highlight }}</li>{% endfor %}</ul>
 
 <h3>Information to collect</h3>
 <ul>
@@ -26,7 +26,7 @@
 </ul>
 
 <h3>Prioritised action plan</h3>
-<ol>{% for x in t.summary.data.next_steps %}<li>{{ x }}</li>{% endfor %}</ol>
+<ol>{% for x in t.summary.data.next_steps %}<li>{{ x|highlight }}</li>{% endfor %}</ol>
 
 <h3>Deciding whether to go ahead</h3>
 <figure class="flow">{{ flows.go_no_go|safe }}
@@ -34,4 +34,4 @@
 </figure>
 
 <h3>Investment-validation checklist</h3>
-<ul class="checklist">{% for c in checklist %}<li>{{ c }}</li>{% endfor %}</ul>
+<ul class="checklist">{% for c in checklist %}<li>{{ c|highlight }}</li>{% endfor %}</ul>

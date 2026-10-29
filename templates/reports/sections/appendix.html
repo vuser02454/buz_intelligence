@@ -46,5 +46,5 @@
 
 {% if s.missing %}
 <h3>Data that was unavailable</h3>
-<ul class="small">{% for m in s.missing %}<li><span class="tag tag-missing">Missing</span> <strong>{{ m.item }}</strong>: {{ m.reason }}</li>{% endfor %}</ul>
+<ul class="small">{% for m in s.missing %}<li><span class="tag tag-missing">Missing</span> <strong>{{ m.item }}</strong>: {{ m.reason|highlight }}</li>{% endfor %}</ul>
 {% endif %}

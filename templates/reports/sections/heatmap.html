@@ -41,8 +41,8 @@
 </div>
 
 <h3>What the heatmap shows {% include "reports/sections/_src.html" with st=t.heatmap_recs %}</h3>
-<p>{{ t.heatmap_recs.data.heatmap_explanation }}</p>
-<p>{{ t.heatmap_recs.data.spatial_pattern }}</p>
+<p>{{ t.heatmap_recs.data.heatmap_explanation|highlight }}</p>
+<p>{{ t.heatmap_recs.data.spatial_pattern|highlight }}</p>
 
 {% if charts.sectors %}
 <figure>

@@ -11,7 +11,7 @@
   <div class="kpi"><div class="label">Data confidence</div><div class="value">{{ y.data.confidence|capfirst }}</div><div class="note"><span class="tag tag-observed">Observed</span> {{ y.data.mapped_places_1500m }} mapped places within 1.5 km</div></div>
   <div class="kpi"><div class="label">Similar places within 1 km</div><div class="value">{{ y.competition.competitors_1km }}</div><div class="note"><span class="tag tag-observed">Observed</span> {{ y.competition.competitors_400m }} within 400 m</div></div>
 </div>
-<p>{{ y.explanation.why }}</p>
+<p>{{ y.explanation.why|highlight }}</p>
 
 <h3>7.2 Existing businesses that could help <span class="tag tag-template">Template text</span></h3>
 {% if y.explanation.supports %}
@@ -73,7 +73,7 @@
   </tbody>
 </table>
 <p class="small">{{ y.revenue.method }} Base = Section 6 monthly estimate ({{ s.revenue.monthly|inr }}).</p>
-<p>{{ y.explanation.opportunity }}</p>
+<p>{{ y.explanation.opportunity|highlight }}</p>
 
 {% if y.comparison %}
 <h4>Top 5 recommendations: model vs synergy</h4>
@@ -87,10 +87,10 @@
 {% endif %}
 
 <h3>7.6 Risks and limitations</h3>
-<ul>{% for r in y.explanation.risks %}<li>{{ r }}</li>{% endfor %}</ul>
+<ul>{% for r in y.explanation.risks %}<li>{{ r|highlight }}</li>{% endfor %}</ul>
 
 <h3>7.7 Practical advice</h3>
-<ol>{% for a in y.explanation.actions %}<li>{{ a }}</li>{% endfor %}</ol>
+<ol>{% for a in y.explanation.actions %}<li>{{ a|highlight }}</li>{% endfor %}</ol>
 <p class="small muted">{{ y.explanation.disclaimer }}</p>
 {% else %}
 <p class="unavailable">Data unavailable for this analysis. {{ y.reason }}</p>

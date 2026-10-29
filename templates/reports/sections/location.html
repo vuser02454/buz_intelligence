@@ -12,8 +12,8 @@
 </table>
 
 <h3>What is around the location {% include "reports/sections/_src.html" with st=t.location %}</h3>
-<p>{{ t.location.data.overview }}</p>
-<p>{{ t.location.data.commercial_character }}</p>
+<p>{{ t.location.data.overview|highlight }}</p>
+<p>{{ t.location.data.commercial_character|highlight }}</p>
 
 {% if charts.location_map %}
 <figure>
@@ -44,7 +44,7 @@
 {% endif %}
 
 <h4>Data caveats</h4>
-<ul class="small">{% for c in t.location.data.data_caveats %}<li>{{ c }}</li>{% endfor %}</ul>
+<ul class="small">{% for c in t.location.data.data_caveats %}<li>{{ c|highlight }}</li>{% endfor %}</ul>
 
 <h3>How the platform analyses a location</h3>
 <figure class="flow">{{ flows.analysis|safe }}

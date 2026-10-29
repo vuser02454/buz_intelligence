@@ -29,6 +29,8 @@
   .swot h4 { margin: 0 0 1mm; font-size: 9pt; }
   ul { margin: 0; padding-left: 4mm; }
   img.map { width: 78mm; border: 0.4pt solid #D8CFBE; }
+  mark.hl-num { background: #FCE7A8; color: #0E1A3B; font-weight: 700; padding: 0 0.5mm; }
+  b.hl-kw { font-weight: 700; color: #2443D6; }
   .warning { background: #fef3c7; border: 0.4pt solid #f59e0b; padding: 2mm 3mm; }
 </style>
 </head>
@@ -105,10 +107,10 @@ Each place is analysed within a 5 km radius with the platform's crowd heatmap, M
 
   <h3>SWOT</h3>
   <div class="swot">
-    <div><h4>Strengths</h4><ul>{% for x in r.swot.strengths %}<li>{{ x }}</li>{% endfor %}</ul></div>
-    <div><h4>Weaknesses</h4><ul>{% for x in r.swot.weaknesses %}<li>{{ x }}</li>{% endfor %}</ul></div>
-    <div><h4>Opportunities</h4><ul>{% for x in r.swot.opportunities %}<li>{{ x }}</li>{% endfor %}</ul></div>
-    <div><h4>Threats</h4><ul>{% for x in r.swot.threats %}<li>{{ x }}</li>{% endfor %}</ul></div>
+    <div><h4>Strengths</h4><ul>{% for x in r.swot.strengths %}<li>{{ x|highlight }}</li>{% endfor %}</ul></div>
+    <div><h4>Weaknesses</h4><ul>{% for x in r.swot.weaknesses %}<li>{{ x|highlight }}</li>{% endfor %}</ul></div>
+    <div><h4>Opportunities</h4><ul>{% for x in r.swot.opportunities %}<li>{{ x|highlight }}</li>{% endfor %}</ul></div>
+    <div><h4>Threats</h4><ul>{% for x in r.swot.threats %}<li>{{ x|highlight }}</li>{% endfor %}</ul></div>
   </div>
 
   <h3>Key risks</h3>
