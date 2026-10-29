@@ -155,6 +155,30 @@
         transition: all 0.2s ease;
     }
 
+    .auth-input-wrapper:has(.toggle-password) .auth-form-input {
+        padding-right: 44px;
+    }
+
+    .toggle-password {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: #64748b;
+        cursor: pointer;
+        font-size: 1rem;
+        padding: 6px;
+        line-height: 1;
+        transition: color 0.2s;
+    }
+
+    .toggle-password:hover,
+    .toggle-password:focus-visible {
+        color: #3ecf8e;
+    }
+
     .auth-form-input:focus {
         border-color: #3ecf8e;
         box-shadow: 0 0 0 3px rgba(62, 207, 142, 0.2);
@@ -355,6 +379,9 @@
                     <div class="auth-input-wrapper">
                         <i class="fas fa-lock auth-input-icon"></i>
                         <input type="password" id="signin-password" class="auth-form-input" placeholder="••••••••" required autocomplete="current-password">
+                        <button type="button" class="toggle-password" onclick="togglePw('signin-password', this)" aria-label="Show password" aria-pressed="false" title="Show password">
+                            <i class="fas fa-eye"></i>
+                        </button>
                     </div>
                 </div>
 
@@ -386,6 +413,9 @@
                     <div class="auth-input-wrapper">
                         <i class="fas fa-lock auth-input-icon"></i>
                         <input type="password" id="signup-password" class="auth-form-input" placeholder="••••••••" minlength="6" required autocomplete="new-password">
+                        <button type="button" class="toggle-password" onclick="togglePw('signup-password', this)" aria-label="Show password" aria-pressed="false" title="Show password">
+                            <i class="fas fa-eye"></i>
+                        </button>
                     </div>
                 </div>
 
@@ -502,6 +532,9 @@
                         <div class="auth-input-wrapper">
                             <i class="fas fa-lock auth-input-icon"></i>
                             <input type="password" id="new-password-input" class="auth-form-input" placeholder="••••••••" minlength="6" required autocomplete="new-password">
+                            <button type="button" class="toggle-password" onclick="togglePw('new-password-input', this)" aria-label="Show password" aria-pressed="false" title="Show password">
+                                <i class="fas fa-eye"></i>
+                            </button>
                         </div>
                     </div>
 
@@ -510,6 +543,9 @@
                         <div class="auth-input-wrapper">
                             <i class="fas fa-check-double auth-input-icon"></i>
                             <input type="password" id="confirm-password-input" class="auth-form-input" placeholder="••••••••" minlength="6" required autocomplete="new-password">
+                            <button type="button" class="toggle-password" onclick="togglePw('confirm-password-input', this)" aria-label="Show password" aria-pressed="false" title="Show password">
+                                <i class="fas fa-eye"></i>
+                            </button>
                         </div>
                     </div>
 
@@ -539,6 +575,16 @@
 <script>
     const nextUrl = JSON.parse(document.getElementById('login-next-url').textContent) || '/dashboard/';
     let currentResetEmail = '';
+
+    function togglePw(inputId, btn) {
+        const input = document.getElementById(inputId);
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        btn.querySelector('i').className = show ? 'fas fa-eye-slash' : 'fas fa-eye';
+        btn.setAttribute('aria-pressed', show);
+        btn.title = show ? 'Hide password' : 'Show password';
+        btn.setAttribute('aria-label', btn.title);
+    }
 
     function showAlert(message, type = 'error') {
         const alertBox = document.getElementById('auth-alert-box');
