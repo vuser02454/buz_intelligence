@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch
 
 from django.db import DatabaseError
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 
 from favorites import store
 from report_generator.models import Report
@@ -57,6 +57,17 @@ class FavoritesReportTests(TestCase):
         self.assertEqual(listed[0]['kind'], 'favorites')
         self.assertTrue(listed[0]['has_pdf'])
         self.assertIn('4 places', listed[0]['location_name'])
+
+    def test_csrf_token_from_favorites_page_is_accepted(self):
+        # The button used to 403: the endpoint is CSRF-checked and favorites.js sent no token.
+        client = Client(enforce_csrf_checks=True)
+        with signed_in('user-aaaaaaaa-1111'), fake_overpass(), patch('favorites.store.list_favorites', return_value=FAVORITES):
+            denied = client.post(EXPORT, '{}', content_type='application/json', **auth_header())
+            self.assertEqual(denied.status_code, 403)
+            client.get('/favorites/')
+            token = client.cookies['csrftoken'].value
+            resp = client.post(EXPORT, '{}', content_type='application/json', HTTP_X_CSRFTOKEN=token, **auth_header())
+        self.assertEqual(resp.status_code, 202, resp.content)
 
     def test_only_selected_favorites_are_analysed(self):
         resp = self.export({'ids': [12, 13]})

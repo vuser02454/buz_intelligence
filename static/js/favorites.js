@@ -81,6 +81,12 @@
     }
 
     // ---- API ---------------------------------------------------------------
+    // /api/favorites/* is CSRF-exempt, but report endpoints (e.g. /api/favorites/report/) check it too.
+    function csrfToken() {
+        const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+
     async function api(path, opts) {
         const session = window.SupabaseAuth ? await window.SupabaseAuth.getSession() : null;
         if (!session) throw Object.assign(new Error('Sign in required'), { status: 401 });
@@ -88,6 +94,7 @@
             headers: Object.assign({
                 'Authorization': 'Bearer ' + session.access_token,
                 'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken(),
             }, (opts && opts.headers) || {}),
         }));
         const data = await resp.json().catch(() => ({}));

@@ -3,6 +3,7 @@ import json
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils.dateparse import parse_datetime
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
 from . import recommender, store
@@ -12,6 +13,7 @@ from .keys import PLACE_KEY_RE, make_place_key
 MAX_FAVORITES_PER_USER = 500  # enforced by the INSERT policy in supabase/favorites.sql
 
 
+@ensure_csrf_cookie  # favorites.js sends it with the (CSRF-checked) report request
 def favorites_page(request):
     """Shell page; the data is loaded by static/js/favorites.js using the Supabase session."""
     return render(request, 'heatmap_app/favorites.html')
