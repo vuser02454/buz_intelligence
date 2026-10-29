@@ -321,6 +321,14 @@ body.theme-mono .legend-compact .badge { border-color: var(--line-light) !import
     body.theme-mono .dynamic-map-footer .revenue-value { font-size: 1rem !important; line-height: 1.2 !important; white-space: nowrap; }
     body.theme-mono .dynamic-map-footer .map-status { flex: 1 1 0; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
+/* Popular-places flashcards are dark cards: keep every line of text white so it stays readable
+   (the mono theme otherwise turns names, badges and text-* values black). */
+body.theme-mono .place-flashcard,
+body.theme-mono .place-flashcard :is(.place-name, .place-type, .place-rank-badge, .place-rating, .place-distance, .place-score-badge,
+    .detail-value, .detail-value[class*="text-"], .flashcard-header > div > i, .place-rating i) { color: #ffffff !important; }
+body.theme-mono .place-flashcard .detail-label { color: rgba(255, 255, 255, 0.72) !important; }
+body.theme-mono .place-flashcard .place-distance { border-color: rgba(255, 255, 255, 0.35) !important; }
+
 /* Narrower desktops: drop the title, then the button labels, before anything gets clipped. */
 @media (min-width: 992px) and (max-width: 1499.98px) {
     body.theme-mono .dynamic-map-top-bar .map-top-bar-title { display: none !important; }
