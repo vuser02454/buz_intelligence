@@ -100,6 +100,16 @@ class AIWriterTests(SimpleTestCase):
         self.assertIn(content.inr(self.snapshot['revenue']['monthly']), text['revenue_explanation'])
         self.assertIn('not profit', text['revenue_explanation'])
 
+    def test_fallback_summary_is_location_specific(self):
+        summary = content.summary_text(self.snapshot, self.risks)
+        nearest = next(c for c in self.snapshot['competition']['list'] if c.get('name'))
+        self.assertIn(nearest['name'], summary['executive_summary'])
+        self.assertTrue(any(nearest['name'] in step for step in summary['next_steps']))
+        self.assertIn('families (55%)', summary['executive_summary'])
+        heat = content.heatmap_text(self.snapshot)
+        self.assertIn('60 or more per km²', heat['heatmap_explanation'])
+        self.assertIn('densest sector', heat['spatial_pattern'])
+
     def test_fallback_roadmap_is_business_specific(self):
         cafe = content.default_roadmap('Cafe')
         pharmacy = content.default_roadmap('Pharmacy')

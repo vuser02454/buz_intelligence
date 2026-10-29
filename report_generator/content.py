@@ -229,6 +229,82 @@ def _dominant_phrase(heat):
     return {'high': 'high', 'medium': 'medium', 'low': 'low'}.get(heat.get('dominant'), 'unknown')
 
 
+_PLURAL_OVERRIDES = {
+    'parking': 'parking areas', 'fast_food': 'fast-food outlets', 'atm': 'ATMs', 'fuel': 'fuel stations',
+    'clothes': 'clothes shops', 'toilets': 'public toilets', 'bus_stop': 'bus stops', 'ice_cream': 'ice-cream shops',
+    'convenience': 'convenience stores', 'hairdresser': 'hairdressers', 'drinking_water': 'drinking-water points',
+    'shelter': 'shelters', 'recycling': 'recycling points', 'car_repair': 'car repair shops', 'books': 'bookshops',
+    'mobile_phone': 'mobile-phone shops', 'electronics': 'electronics shops', 'hardware': 'hardware shops',
+    'furniture': 'furniture shops', 'beauty': 'beauty salons', 'optician': 'opticians', 'jewelry': 'jewellery shops',
+}
+
+
+def _plural(name):
+    """'place_of_worship' -> 'places of worship', 'pharmacy' -> 'pharmacies' (for mapped type tags)."""
+    if (name or '').lower() in _PLURAL_OVERRIDES:
+        return _PLURAL_OVERRIDES[name.lower()]
+    words = (name or '').replace('_', ' ').lower().split()
+    if not words:
+        return ''
+    if len(words) >= 3 and words[1] == 'of':
+        words[0] = _plural(words[0])
+        return ' '.join(words)
+    last = words[-1]
+    if last.endswith('y') and last[-2:-1] not in 'aeiou':
+        last = last[:-1] + 'ies'
+    elif last.endswith(('s', 'sh', 'ch', 'x')):
+        last += 'es'
+    else:
+        last += 's'
+    return ' '.join(words[:-1] + [last])
+
+
+def _wedge(sector):
+    return sector['wedge'].split(' (')[0].lower()
+
+
+def _sector_label(sector):
+    return f"{_wedge(sector)} wedge, {sector['ring']}"
+
+
+def _area_profile(s):
+    """
+    (density label, character label, commercial share) from mapped-feature counts.
+    Labels follow fixed cut-offs so the same data always gets the same words.
+    """
+    pois, heat = s.get('pois') or {}, s.get('heatmap') or {}
+    total = pois.get('in_radius') or 0
+    if not total:
+        return None
+    fam = dict(pois.get('by_family') or [])
+    share = (fam.get('Shops', 0) + fam.get('Food & drink', 0)) / total
+    density = heat.get('density_per_km2') or 0
+    density_label = 'densely mapped' if density >= 60 else 'moderately built-up' if density >= 25 else 'sparsely mapped'
+    character = ('strongly commercial' if share >= 0.35 else 'mixed commercial and residential' if share >= 0.2
+                 else 'mainly residential or institutional')
+    return density_label, character, share
+
+
+_SEGMENTS = {'students': 'students', 'professionals': 'working professionals', 'families': 'families',
+             'tourists': 'visitors and tourists', 'residents': 'long-time residents'}
+
+
+def _customer_mix(rev, n=2):
+    """Top `n` segments of the engine's estimated customer mix, e.g. 'students (58%) and families (16%)'."""
+    mix = ((rev or {}).get('breakdown') or {}).get('customer_mix') or {}
+    top = sorted(((k, v) for k, v in mix.items() if k in _SEGMENTS and v), key=lambda kv: kv[1], reverse=True)[:n]
+    if not top:
+        return ''
+    parts = [f'{_SEGMENTS[k]} ({pct(v)})' for k, v in top]
+    return ' and '.join(parts) if len(parts) < 3 else ', '.join(parts[:-1]) + ' and ' + parts[-1]
+
+
+def _nearest_competitor(s):
+    comp = s.get('competition') or {}
+    named = [c for c in comp.get('list') or [] if c.get('name')]
+    return named[0] if named else None
+
+
 def location_text(s):
     loc, pois, heat = s['location'], s['pois'], s['heatmap']
     fam = dict(pois.get('by_family') or [])
@@ -238,20 +314,41 @@ def location_text(s):
         f"within a {loc['radius_m']:,} m radius. OpenStreetMap lists {pois.get('in_radius', 0):,} mapped features "
         f"inside that circle, of which {commercial:,} are shops or food-and-drink places."
     )
+    profile = _area_profile(s)
+    if profile:
+        density_label, character_label, share = profile
+        overview += (f" With about {heat.get('density_per_km2') or 0:.0f} mapped features per km² and {pct(share)} of them "
+                     f"shops or food places, the area reads as {density_label} and {character_label}.")
     if pois.get('status') != 'ok':
         overview = (f"This report analyses {loc['name']} within a {loc['radius_m']:,} m radius. "
                     "OpenStreetMap returned no mapped features with coordinates for this area, so most of the "
                     "analysis below could not be carried out.")
     top = ', '.join(f'{name.lower()} ({count:,})' for name, count in (pois.get('by_family') or [])[:4])
-    character = (f"The most common kinds of mapped features are {top}. " if top else '') + (
-        "These counts describe what has been mapped, not how many people visit. "
-        f"The heatmap's dominant level is {_dominant_phrase(heat)}.")
+    character = f"The most common kinds of mapped features are {top}. " if top else ''
+    types = [(t, c) for t, c in (pois.get('top_types') or []) if t][:3]
+    if types:
+        character += ('Among individual place types, ' + ', '.join(f'{_plural(t)} ({c:,})' for t, c in types)
+                      + ' lead the list. ')
+    shops, food = fam.get('Shops', 0), fam.get('Food & drink', 0)
+    if shops and food:
+        if food > shops:
+            character += 'Food and drink places outnumber shops, which points to an eating-out or footfall-led area. '
+        elif shops >= 2 * food:
+            character += 'Shops clearly outnumber food places, which points to a retail-led area. '
+        else:
+            character += 'Shops and food places are fairly balanced. '
+    character += ("These counts describe what has been mapped, not how many people visit. "
+                  f"The heatmap's dominant level is {_dominant_phrase(heat)}.")
     caveats = [
         'OpenStreetMap is volunteer-mapped; some businesses may be missing, closed or mis-tagged.',
         'Counts include buildings and road segments, not only businesses.',
         'The platform has no pedestrian footfall measurements; "visitors" figures are model estimates from mapped features.',
     ]
-    return {'overview': overview, 'commercial_character': character, 'data_caveats': caveats}
+    total, named = pois.get('in_radius') or 0, pois.get('named') or 0
+    if total and total - named:
+        caveats.append(f'{total - named:,} of the {total:,} mapped features ({pct((total - named) / total)}) have no name, '
+                       'so they cannot be checked against real shopfronts.')
+    return {'overview': overview, 'commercial_character': character.strip(), 'data_caveats': caveats}
 
 
 def heatmap_text(s):
@@ -264,20 +361,35 @@ def heatmap_text(s):
         }
     explanation = (
         f"The 5 km circle is divided into 9 sectors: 3 distance rings × 3 compass wedges. Each sector is coloured by "
-        f"how many mapped features it contains. {c['high']} sector(s) are High (15 or more features), "
+        f"the density of mapped features it contains. {c['high']} sector(s) are High (60 or more per km²), "
         f"{c['medium']} Medium (25–59/km²) and {c['low']} Low (below 25/km²); {c['empty']} contain none. "
         f"Because at least one sector is {_dominant_phrase(heat)}, the platform treats the area as "
         f"{_dominant_phrase(heat)} intensity when recommending businesses."
     )
-    busiest = sorted(heat['sectors'], key=lambda x: x['count'], reverse=True)
+    sectors = heat['sectors']
+    busiest = sorted(sectors, key=lambda x: x['count'], reverse=True)
     top = busiest[0] if busiest and busiest[0]['count'] else None
-    quiet = [x for x in heat['sectors'] if x['intensity'] in ('low', 'empty')]
+    quiet = [x for x in sectors if x['intensity'] in ('low', 'empty')]
     pattern = ''
     if top:
-        pattern = (f"The densest sector is the {top['wedge'].split(' (')[0].lower()} wedge at {top['ring']} "
-                   f"with {top['count']:,} mapped features. ")
+        pattern = f"The densest sector is the {_sector_label(top)} with {top['count']:,} mapped features. "
+    inner = [x for x in sectors if x['key'].startswith('0_')]
+    overall = heat.get('density_per_km2')
+    if inner and overall and all('density_per_km2' in x for x in inner):
+        inner_density = sum(x['density_per_km2'] for x in inner) / len(inner)
+        if inner_density >= overall * 1.2:
+            pattern += (f"Activity is concentrated close to the location: the inner ring averages {inner_density:.0f} "
+                        f"features per km² against {overall:.0f} for the whole circle, so the site itself sits in the busy part. ")
+        elif inner_density <= overall * 0.8:
+            pattern += (f"The inner ring is quieter than the circle as a whole ({inner_density:.0f} against {overall:.0f} "
+                        "features per km²), so most mapped activity lies some distance from the site. ")
+        else:
+            pattern += (f"The inner ring ({inner_density:.0f} features per km²) is close to the circle's average "
+                        f"({overall:.0f}), so activity is spread fairly evenly. ")
     if quiet:
-        pattern += f"{len(quiet)} sector(s) have few or no mapped features. "
+        quietest = min(quiet, key=lambda x: x['count'])
+        pattern += (f"{len(quiet)} sector(s) have few or no mapped features; the quietest is the "
+                    f"{_sector_label(quietest)} ({quietest['count']:,}). ")
     pattern += ('High density of mapped places suggests an established commercial or residential area, but it does '
                 'not measure how many people are present at any time.')
     return {'heatmap_explanation': explanation, 'spatial_pattern': pattern}
@@ -290,6 +402,8 @@ def candidate_text(s, cand):
     if cand['source'].startswith('ML model (primary)'):
         why.append(f"The decision-tree model chose it for a {rec.get('intensity', 'unknown')}-intensity area"
                    + (f" with a '{rec['area_hint']}' character inferred from nearby places." if rec.get('area_hint') else '.'))
+        if rec.get('reasoning'):
+            why.append(f"Model note: {rec['reasoning'].rstrip('.')}.")
     elif cand['source'].startswith('ML model'):
         why.append(f"The model predicts it for a different intensity level ({cand['source'].split('for ')[-1].split(' ')[0]}), "
                    "so it is shown as an alternative, not as a match for this area's intensity.")
@@ -312,13 +426,20 @@ def candidate_text(s, cand):
         strengths.append("The platform's feasibility rules mark it as feasible.")
     elif cand.get('feasible') is False:
         weaknesses.append("The platform's feasibility rules mark it as not feasible.")
+    health = cand.get('business_health')
+    if health in ('Optimal', 'Good', 'Strong'):
+        strengths.append(f'The revenue engine rates business health as {health.lower()}.')
+    elif health in ('Weak', 'Poor', 'Overloaded'):
+        weaknesses.append(f'The revenue engine rates business health as {health.lower()}.')
     if cand.get('uses_default_assumptions'):
         weaknesses.append('The revenue engine has no specific parameters for this category and used generic defaults.')
-    validation = ['Visit the area at peak and off-peak hours to observe actual customers.',
-                  'Talk to at least 3 owners of similar businesses nearby.',
-                  'Get real rent quotes before trusting any revenue figure.']
-    return {'business': cand['business'], 'why': ' '.join(why), 'strengths': strengths or ['None identified from the available data.'],
-            'weaknesses': weaknesses or ['None identified from the available data.'], 'validation_steps': validation}
+    # Validation steps follow the business type (the same groups as the roadmap), so a pharmacy and a
+    # cafe get different checks; the last one is the same rent check every business needs.
+    details = _GROUP_DETAILS[business_group(cand['business'])]
+    validation = ([x.rstrip('.') + '.' for x in details['validate_demand'][:1] + details['competitors'][:1]]
+                  + ['Get real rent quotes before trusting any revenue figure.'])
+    return {'business': cand['business'], 'why': ' '.join(why), 'strengths': strengths[:4] or ['None identified from the available data.'],
+            'weaknesses': weaknesses[:4] or ['None identified from the available data.'], 'validation_steps': validation}
 
 
 def revenue_text(s):
@@ -327,22 +448,39 @@ def revenue_text(s):
         return {'revenue_explanation': 'Data unavailable for this analysis.', 'scenario_explanation': '',
                 'assumption_notes': [rev.get('reason') or 'The revenue engine did not run.']}
     a = rev['assumptions']
+    b = rev.get('breakdown') or {}
     expl = (f"For the business type '{nice(rev['business_type'])}', the platform's Extended Huff engine estimates gross sales of about "
             f"{inr(rev['daily'])} per day, or {inr(rev['monthly'])} per month (30 days). This is revenue before any "
             "costs, not profit.")
+    if b.get('daily_customers') is not None and b.get('visitor_proxy') is not None:
+        customers = (f"about {b['daily_customers']:.0f} paying customers" if b['daily_customers'] >= 1.5
+                     else 'about one paying customer' if b['daily_customers'] >= 0.5
+                     else 'less than one paying customer')
+        expl += (f" It arrives there by expecting {customers} a day out of a visitor "
+                 f"proxy of {b['visitor_proxy']:,.0f}, each spending {inr(a['avg_spend'])}.")
+    mix = _customer_mix(rev)
+    if mix:
+        expl += f" The engine's estimated customer mix here is led by {mix}; this is inferred from mapped places, not surveyed."
     sc = rev.get('scenarios')
     scen = ''
     if sc:
+        width = ('narrow, because the engine is fairly confident in its inputs' if sc['spread_pct'] <= 15
+                 else 'wide, because the engine has limited confidence in its inputs' if sc['spread_pct'] >= 30
+                 else 'moderate')
         scen = (f"The engine also gives a range of {inr(sc['conservative'])} to {inr(sc['optimistic'])} per month "
-                f"(±{sc['spread_pct']}%). The width comes from the engine's confidence score ({rev['confidence_score']}/100): "
-                "lower confidence gives a wider range, between ±10% and ±40%. It is not a statistical confidence interval.")
+                f"(±{sc['spread_pct']}%), which is {width}. The width comes from the engine's confidence score "
+                f"({rev['confidence_score']}/100): lower confidence gives a wider range, between ±10% and ±40%. "
+                "It is not a statistical confidence interval.")
     notes = [f"Average spend per customer assumed by the engine: {inr(a['avg_spend'])}.",
              f"Share of visitors who buy, assumed by the engine: {pct(a['conversion_rate'])}."]
     if rev.get('uses_default_assumptions'):
         notes.insert(0, f"The engine has no specific parameters for '{nice(rev['business_type'])}', so it used its "
                         "generic default values. Treat the forecast as very rough.")
+    tips = rev.get('engine_recommendations') or []
+    if tips:
+        notes.append(f"Engine suggestion for this location: {tips[0].rstrip('.')}.")
     notes.append('Operating costs (rent, salaries, stock, utilities) are not in the data, so net profit cannot be calculated.')
-    return {'revenue_explanation': expl, 'scenario_explanation': scen, 'assumption_notes': notes}
+    return {'revenue_explanation': expl, 'scenario_explanation': scen, 'assumption_notes': notes[:5]}
 
 
 def summary_text(s, risks):
@@ -359,21 +497,73 @@ def summary_text(s, risks):
         parts.append(f"The feasibility rules mark it as {'feasible' if feas['feasible'] else 'not feasible'}.")
     if rev.get('status') == 'ok':
         parts.append(f"Estimated gross sales are about {inr(rev['monthly'])} per month; this is an estimate, not a guarantee.")
-    advantages = []
-    pos = rev.get('positive_factors') or []
-    advantages.extend(pos[:3])
+    profile = _area_profile(s)
+    if profile:
+        parts.append(f"The surroundings read as {profile[0]} and {profile[1]}.")
+    comp = s.get('competition') or {}
+    business = nice(comp.get('business_type') or s.get('target_business') or '')
+    nearest = _nearest_competitor(s)
+    if comp.get('status') == 'ok':
+        if comp.get('within_1000_m'):
+            parts.append(f"{comp['within_1000_m']} matching competitor(s) are mapped within 1 km"
+                         + (f"; the nearest named one is {nearest['name']} at {nearest['distance_m']:,} m." if nearest else '.'))
+        elif comp.get('count'):
+            parts.append(f"No matching competitor is mapped within 1 km; the nearest of {comp['count']} within 5 km is "
+                         f"{comp['nearest_m']:,} m away.")
+        else:
+            parts.append('No matching competitor is mapped anywhere within the analysis radius.')
+    mix = _customer_mix(rev)
+    if mix:
+        parts.append(f"The engine expects customers to be mostly {mix}.")
+
+    advantages = list((rev.get('positive_factors') or [])[:2])
+    b = rev.get('breakdown') or {}
+    if comp.get('status') == 'ok' and not comp.get('within_1000_m'):
+        advantages.append('No matching competitor is mapped within 1 km of the site.')
+    if (b.get('transit_score') or 0) >= 70:
+        advantages.append(f"Good public-transport access (engine transit score {b['transit_score']:.0f}/100).")
+    if (b.get('diversity_score') or 0) >= 70:
+        advantages.append(f"A varied mix of nearby places (diversity score {b['diversity_score']:.0f}/100) brings different reasons to visit.")
+    advantages = list(dict.fromkeys(advantages))[:4]
     if not advantages:
         advantages.append('No clear advantages could be identified from the available data.')
     key_risks = [r['risk'] for r in risks[:4]]
-    next_steps = ['Visit the location at different times and count actual passers-by.',
-                  'Visit the nearest competitors listed in this report.',
-                  'Collect rent and cost quotes to estimate profit.',
-                  'Confirm licences with the relevant authorities before signing a lease.']
-    final = ('Treat this report as a starting point for your own checks, not as a decision. '
+
+    heat = s.get('heatmap') or {}
+    busiest = max(heat.get('sectors') or [{}], key=lambda x: x.get('count', 0))
+    group_details = _GROUP_DETAILS[business_group(s.get('target_business'))]
+    next_steps = [group_details['validate_demand'][0].rstrip('.') + '.']
+    if nearest:
+        next_steps.append(f"Visit {nearest['name']} ({nearest['distance_m']:,} m away) and the other competitors listed "
+                          'in Section 5; note prices, hours and how busy they are.')
+    else:
+        next_steps.append(f'Find out why no {business or "similar business"} is mapped nearby: an unserved niche, or '
+                          'places tagged differently on the map.')
+    if busiest.get('count'):
+        next_steps.append(f"Collect rent quotes in the busiest sector ({_sector_label(busiest)}) and closer to the site, "
+                          'then compare them with the conservative revenue scenario.')
+    else:
+        next_steps.append('Collect rent and cost quotes to estimate profit.')
+    next_steps.append(group_details['legal'][0].rstrip('.') + ' before signing a lease.')
+
+    score, health = rev.get('potential_score'), rev.get('business_health')
+    feasible = feas.get('feasible') if feas.get('status') == 'ok' else None
+    if score is not None and score >= 70 and feasible and health != 'Weak':
+        verdict = 'The platform\'s measures are favourable here, so this location is worth a detailed on-the-ground check. '
+    elif score is not None and (score < 50 or feasible is False):
+        verdict = 'The platform\'s measures are weak here; look at other candidates or locations before spending money on this one. '
+    else:
+        verdict = 'The platform\'s measures are mixed: some point in favour, some against, so the on-site checks below decide it. '
+    final = (verdict + 'Treat this report as a starting point for your own checks, not as a decision. '
              'Do not invest on the basis of the model recommendation alone.')
     questions = ['How many people actually pass the premises you can rent, and when?',
-                 'What will rent and monthly operating costs be?',
-                 'Are the mapped competitors still open, and how busy are they?']
+                 'What will rent and monthly operating costs be?']
+    if nearest:
+        questions.append(f"Is {nearest['name']} still open, and how busy is it at peak times?")
+    else:
+        questions.append('Are the mapped competitors still open, and how busy are they?')
+    if mix:
+        questions.append(f'Would {mix.split(" (")[0]} actually buy from this business, and at what price?')
     return {'executive_summary': ' '.join(parts), 'key_advantages': advantages, 'key_risks': key_risks,
             'next_steps': next_steps, 'final_recommendation': final, 'open_questions': questions}
 
