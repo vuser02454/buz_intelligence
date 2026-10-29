@@ -41,9 +41,9 @@
         return `${n > 0 ? '+' : ''}${n.toFixed(1)}%`;
     }
 
-    /** Monochrome ramp (site theme) dark grey → light grey → white, t in [0, 1]. */
+    /** Colour ramp cyan → violet → pink, t in [0, 1]. */
     function gradientColor(t) {
-        const stops = [[96, 96, 96], [170, 170, 170], [255, 255, 255]];
+        const stops = [[34, 211, 238], [139, 92, 246], [236, 72, 153]];
         const x = Math.max(0, Math.min(1, t)) * 2;
         const i = Math.min(1, Math.floor(x));
         const f = x - i;

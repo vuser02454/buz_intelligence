@@ -174,7 +174,7 @@ function drawAnalysisRadius(lat, lon, { fit = true } = {}) {
         radiusCircle = null;
     }
     analysisRadiusCircle = L.circle([lat, lon], {
-        radius: ANALYSIS_RADIUS_M, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 0.04,
+        radius: ANALYSIS_RADIUS_M, color: '#2563eb', fillColor: '#3b82f6', fillOpacity: 0.08,
         weight: 2, dashArray: '8, 8', interactive: false,
     }).addTo(m);
     if (fit) {
@@ -271,21 +271,16 @@ function isHeatmapPage() {
     return !!(container && typeof L !== 'undefined');
 }
 
-// Monochrome satellite base map: MapTiler imagery (darkened and desaturated by the
-// .mono-sat CSS) plus MapTiler Toner – roads, building outlines and labels – inverted to
-// white and screen-blended on top (.mono-lines). Both layers send CORS headers, so the
-// PDF report can still capture the map (report-generator.js applies the same filters).
+// Full-colour MapTiler Basic base map (the platform's original map style). It sends CORS
+// headers, so the PDF report can still capture the map.
 const MAPTILER_KEY = 'SJwCksU5oVIkLOgs9ElB';
 const MAP_ATTRIBUTION = '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>';
 
-function addMonoBaseLayers(targetMap) {
-    const common = { maxZoom: 19, crossOrigin: true };
-    return L.layerGroup([
-        L.tileLayer(`https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,
-            { ...common, attribution: MAP_ATTRIBUTION, className: 'mono-sat', zIndex: 1 }),
-        L.tileLayer(`https://api.maptiler.com/maps/toner-v2/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,
-            { ...common, className: 'mono-lines', zIndex: 2 }),
-    ]).addTo(targetMap);
+function addBaseLayers(targetMap) {
+    const layer = L.tileLayer(`https://api.maptiler.com/maps/basic-v2/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,
+        { maxZoom: 19, crossOrigin: true, attribution: MAP_ATTRIBUTION });
+    layer.addTo(targetMap);
+    return layer;
 }
 
 /** Map control: the selected location's name with a heart to save it to Favorites. */
@@ -316,7 +311,7 @@ function initHeatmapContainer() {
     const mapEl = document.getElementById('map');
     if (!mapEl || typeof L === 'undefined') return null;
     map = L.map('map').setView([51.505, -0.09], 13);
-    baseTileLayer = addMonoBaseLayers(map);
+    baseTileLayer = addBaseLayers(map);
     addSaveLocationControl(map);
     // Recalc size after layout (fixes invisible map)
     requestAnimationFrame(function () {
@@ -1621,7 +1616,7 @@ async function openDashboardDataOnlyMode(targetTab) {
     const params = new URLSearchParams(window.location.search);
     ['auto_map', 'recs', 'form'].forEach(k => params.delete(k));
     params.set('ai', 'true');
-    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}${window.location.hash}`);
 
     ['dashboard-launchpad', 'dynamic-map-container', 'popular-places-panel', 'dashboard-startup-form-section']
         .forEach(id => document.getElementById(id)?.classList.add('d-none'));
@@ -1637,6 +1632,10 @@ async function openDashboardDataOnlyMode(targetTab) {
     // The graph reads the saved analysis context: no recomputation, no default location.
     if (window.RevenueAnalytics3D) window.RevenueAnalytics3D.show(getAnalysisContext());
     if (window.SynergyIntel) window.SynergyIntel.show(getAnalysisContext());
+    // Chat deep links (/dashboard/?ai=true#synergy-revenue-intel) land on the section they name.
+    const target = ['#revenue-analytics-3d', '#synergy-revenue-intel'].includes(window.location.hash)
+        && document.querySelector(window.location.hash);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     await loadRecommendationsForCurrentLocation();
 }
 
@@ -1689,7 +1688,7 @@ function renderAreaFooter(data) {
     const count = Number(data.pois_analysed ?? data.active_sensors_count ?? data.total_pois ?? 0);
     if (countEl) {
         countEl.textContent = count.toLocaleString('en-IN');
-        countEl.style.color = '';   // black/white design system: no traffic-light colours
+        countEl.style.color = count >= 20 ? '#16a34a' : count >= 8 ? '#ca8a04' : '#dc2626';
         const label = countEl.parentElement?.querySelector('.revenue-label');
         if (label) label.textContent = 'Mapped Places (5 km)';
     }
@@ -2858,7 +2857,26 @@ function handleStructuredChatAction(action) {
         if (window.ReportGenerator) window.ReportGenerator.start({ source: 'chat' });
     } else if (intent === 'download_report') {
         if (window.ReportGenerator && action.report_id) window.ReportGenerator.download(action.report_id);
+    } else if (intent === 'view_revenue_graph') {
+        openAnalyticsSection('revenue-analytics-3d');
+    } else if (intent === 'view_synergy') {
+        openAnalyticsSection('synergy-revenue-intel');
+    } else if (intent === 'open_favorites') {
+        navigateToFeature('favorites');
     }
+}
+
+// Open Business Analytics and scroll to one of its sections (3D revenue graph, synergy panel).
+function openAnalyticsSection(sectionId) {
+    if (!window.location.pathname.includes('/dashboard')) {
+        window.location.href = `/dashboard/?ai=true#${sectionId}`;
+        return;
+    }
+    navigateToFeature('analytics');
+    setTimeout(() => {
+        const el = document.getElementById(sectionId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 400);
 }
 
 // Run actions the server marked auto_run (currently only report generation the user asked for).
@@ -2911,12 +2929,12 @@ function placeFeasibilityMarker(lat, lon, label) {
         });
         businessRecommendationMarkers = [];
     }
-    const color = '#ffffff';   // black/white design system (was brown)
+    const color = '#8B4513';   // brown
     if (typeof L !== 'undefined' && L.circleMarker) {
         try {
             const marker = L.circleMarker([lat, lon], {
                 radius: 14,
-                color: '#000000',
+                color,
                 fillColor: color,
                 fillOpacity: 0.9,
                 weight: 3
@@ -3815,13 +3833,13 @@ function highlightBusinessAreasForIntensity(level) {
         return;
     }
 
-    const color = '#ffffff';   // black/white design system (was brown)
+    const color = '#8B4513';   // brown
 
     areas.slice(0, 10).forEach(area => {
         if (typeof area.latitude !== 'number' || typeof area.longitude !== 'number') return;
         const marker = L.circleMarker([area.latitude, area.longitude], {
             radius: 10,
-            color: '#000000',
+            color,
             fillColor: color,
             fillOpacity: 0.9,
             weight: 3
@@ -4131,7 +4149,7 @@ function updateBusinessTypeOptionsFromPrediction(prediction, businessByIntensity
     const hint = document.getElementById('form-flow-hint');
     if (hint && totalAdded > 0) {
         hint.textContent = `${totalAdded} business types loaded - ${cfg.label || dominant} area. Start typing to search.`;
-        hint.style.color = '';
+        hint.style.color = dominant === 'high' ? '#dc2626' : dominant === 'medium' ? '#ca8a04' : '#16a34a';
     }
 }
 
@@ -4201,7 +4219,7 @@ async function updateBuildingOutlines(lat, lon) {
             if (coords.length < 3) return;
 
             const poly = L.polygon(coords, {
-                color: '#ffffff',
+                color: '#475569',
                 weight: 0.8,
                 opacity: 0.7,
                 fill: false
@@ -4438,10 +4456,10 @@ function toggleTheme() {
 }
 
 function updateMapTiles(_theme) {
-    // The site uses one monochrome satellite map in both colour modes.
+    // The site uses the full-colour map in both colour modes.
     if (!isHeatmapPage() || !map || typeof L === 'undefined') return;
     if (baseTileLayer) map.removeLayer(baseTileLayer);
-    baseTileLayer = addMonoBaseLayers(map);
+    baseTileLayer = addBaseLayers(map);
 }
 
 // Initialize theme on page load
@@ -5095,7 +5113,7 @@ function initDynamicDashboardMap() {
 
     // Initialize Leaflet on the dashboard-specific viewport
     dashboardMap = L.map('dashboard-map').setView([initialLat, initialLon], 13);
-    baseTileLayer = addMonoBaseLayers(dashboardMap);
+    baseTileLayer = addBaseLayers(dashboardMap);
     addSaveLocationControl(dashboardMap);
 
     // Sync with global 'map' variable for compatibility with existing search/location functions
@@ -5506,10 +5524,9 @@ function initDashboardFloatingUI() {
                 if (!feasBanner) return;
                 feasBanner.style.display = 'block';
                 feasBanner.textContent = msg;
-                // Black/white system: success is plain white; red is kept only for errors.
-                feasBanner.style.background = type === 'success' ? 'rgba(255,255,255,0.08)' : 'rgba(248,113,113,0.12)';
-                feasBanner.style.border = `1px solid ${type === 'success' ? '#ffffff' : 'rgba(248,113,113,0.4)'}`;
-                feasBanner.style.color = type === 'success' ? '#ffffff' : '#f87171';
+                feasBanner.style.background = type === 'success' ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)';
+                feasBanner.style.border = `1px solid ${type === 'success' ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)'}`;
+                feasBanner.style.color = type === 'success' ? '#16a34a' : '#dc2626';
             };
 
             if (!bizType) {

@@ -7,8 +7,8 @@
  *
  * Palette: color-2 #FFFFFF background, color-1 #000000 text (DESIGN.md). Secondary text and
  * hairlines are black at reduced opacity (contrast-checked for WCAG AA). The map and the 3D
- * revenue graph stay dark because their imagery and labels are made for a dark backdrop.
- * Heatmap sectors keep their red / amber / green; red is otherwise only for errors / destructive.
+ * revenue graph keep their original colours (full-colour map, cyan → violet → pink bars);
+ * heatmap sectors keep their red / amber / green.
  *
  * Type: Instrument Serif (condensed display serif) + Inter Tight 800 (heavy emphasis) for
  * uppercase headlines; IBM Plex Mono (for GT America Mono) uppercase for labels and figures;
@@ -272,7 +272,7 @@ body.theme-mono :is(.dynamic-map-top-bar, .dynamic-map-footer, .search-overlay-c
     background: var(--color-2) !important; border-color: var(--line-light) !important; color: var(--color-1) !important;
 }
 body.theme-mono .legend-compact .badge { border-color: var(--line-light) !important; }
-body.theme-mono .leaflet-container { background: var(--color-1) !important; }
+body.theme-mono .leaflet-container { background: #e5e7eb !important; }
 body.theme-mono :is(.leaflet-bar, .leaflet-control-layers) { border: var(--space-1) solid var(--color-1) !important; border-radius: var(--radius-md) !important; overflow: hidden !important; }
 body.theme-mono .leaflet-bar a { background: var(--color-2) !important; color: var(--color-1) !important; border-color: var(--line-light) !important; }
 body.theme-mono .leaflet-bar a:hover { background: var(--color-1) !important; color: var(--color-2) !important; }
@@ -363,15 +363,8 @@ body.theme-mono .navbar-base .nav-link:hover { border-bottom-color: var(--color-
 }
 
 /* Outside the layer – nothing else styles these. */
-/* Monochrome satellite (main.js addMonoBaseLayers): MapTiler imagery, desaturated and darkened … */
-.leaflet-layer.mono-sat { filter: grayscale(1) brightness(0.42) contrast(1.15); }
-/* … with MapTiler Toner (roads, building outlines, labels) inverted to white and screen-blended.
-   report-generator.js reads these computed filter / blend values when it captures the PDF map. */
-.leaflet-layer.mono-lines { filter: invert(1) grayscale(1) brightness(0.9); mix-blend-mode: screen; opacity: 0.72; }
 /* "Save this location" control on the map */
 .mono-fav-control { background: #FFFFFF; border: 1px solid #000000; border-radius: 10px; color: #000000; display: flex; align-items: center; gap: 8px;
                     padding: 5px 10px 5px 5px; font: 400 13px/1 'IBM Plex Mono', ui-monospace, monospace; max-width: min(60vw, 320px); }
 .mono-fav-control .fav-btn { position: static; }
 .mono-fav-control span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Map pins are coloured PNGs: shown in greyscale. */
-body.theme-mono .leaflet-marker-pane img.leaflet-marker-icon { filter: grayscale(1) brightness(1.5) contrast(1.2); }

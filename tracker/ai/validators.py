@@ -16,6 +16,9 @@ SAFE_INTENTS = {
     'open_form',
     'find_popular_places',
     'generate_report',
+    'view_revenue_graph',
+    'view_synergy',
+    'open_favorites',
 }
 
 # Sensitive keys that must NEVER be passed to external AI models
@@ -69,7 +72,8 @@ def is_platform_relevant(query: str) -> bool:
         'revenue', 'feasibility', 'feasible', 'profit', 'competitor', 'competition',
         'alternative', 'compare', 'analyze', 'search', 'bangalore', 'mumbai', 'delhi',
         'bengaluru', 'hyderabad', 'chennai', 'pune', 'kolkata', 'indiranagar',
-        'koramangala', 'whitefield', 'dashboard', 'potential', 'score', 'cqi'
+        'koramangala', 'whitefield', 'dashboard', 'potential', 'score', 'cqi',
+        'synergy', 'favorite', 'favourite', 'saved', 'report', 'pdf', 'graph', 'analytics', 'projected', '3d'
     ]
     
     if any(keyword in lower_query for keyword in platform_keywords):
@@ -163,6 +167,9 @@ def validate_structured_action(action: Dict[str, Any]) -> Optional[Dict[str, Any
             'open_form': '📝 Submit Business Info',
             'find_popular_places': '🎯 Popular Places Radar',
             'generate_report': '📄 Generate PDF report',
+            'view_revenue_graph': '📊 Open Revenue Graph',
+            'view_synergy': '🔗 Open Synergy Analysis',
+            'open_favorites': '❤️ Open Favorites',
         }
         valid_action['label'] = labels.get(intent, 'Action')
         

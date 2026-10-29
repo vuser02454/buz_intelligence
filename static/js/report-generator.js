@@ -245,9 +245,8 @@
         };
         let skipped = 0;
 
-        // 1. Base map tiles, each layer with its on-screen CSS filter / blend mode (the
-        //    monochrome satellite + white outline layers). Where canvas filters are not
-        //    supported, filtered overlay layers are left out rather than drawn wrongly.
+        // 1. Base map tiles, each layer with any on-screen CSS filter / blend mode. Where canvas
+        //    filters are not supported, filtered overlay layers are left out rather than drawn wrongly.
         const tiles = container.querySelectorAll('.leaflet-tile-pane img.leaflet-tile-loaded');
         const canFilter = 'filter' in ctx;
         for (const tile of tiles) {
@@ -289,7 +288,7 @@
         for (const img of container.querySelectorAll('.leaflet-shadow-pane img, .leaflet-marker-pane img')) {
             const r = at(img);
             ctx.save();
-            if (canFilter) ctx.filter = getComputedStyle(img).filter || 'none';   // greyscale pins, as on screen
+            if (canFilter) ctx.filter = getComputedStyle(img).filter || 'none';   // pins drawn as on screen
             try { ctx.drawImage(await corsCopy(img), r.x, r.y, r.w, r.h); } catch (_e) { skipped += 1; }
             ctx.restore();
         }

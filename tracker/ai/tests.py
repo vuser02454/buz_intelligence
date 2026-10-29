@@ -141,3 +141,50 @@ class DualAITestCase(TestCase):
         self.assertTrue(output["success"])
         self.assertIn("Indiranagar", output["message"])
         self.assertTrue(len(output["structured_actions"]) > 0)
+
+
+class FeatureAnswerTestCase(TestCase):
+    """The chatbox explains the current features and links to them, without calling the AI providers."""
+
+    def intents(self, query):
+        res = process_user_query(query)
+        return res, [a['intent'] for a in res['structured_actions']]
+
+    def test_synergy_question(self):
+        res, intents = self.intents("What is synergy analysis?")
+        self.assertIn('Synergy', res['message'])
+        self.assertIn('view_synergy', intents)
+
+    def test_revenue_graph_question(self):
+        res, intents = self.intents("How do I see the 3D revenue graph?")
+        self.assertIn('Live, Daily, Weekly and Monthly', res['message'])
+        self.assertIn('view_revenue_graph', intents)
+
+    def test_favorites_question(self):
+        _, intents = self.intents("open my favorites")
+        self.assertEqual(intents, ['open_favorites'])
+
+    def test_report_question_is_not_a_generation_request(self):
+        res, intents = self.intents("What is in the report?")
+        self.assertIn('Key points at a glance', res['message'])
+        self.assertNotIn('auto_run', str(res['structured_actions']))
+        self.assertIn('generate_report', intents)
+
+    def test_help_lists_new_features(self):
+        res, intents = self.intents("help")
+        for word in ('Synergy', '3D graph', 'Favorites', 'PDF report'):
+            self.assertIn(word, res['message'])
+        self.assertIn('view_revenue_graph', intents)
+
+    def test_new_intents_pass_validation(self):
+        for intent in ('view_revenue_graph', 'view_synergy', 'open_favorites'):
+            self.assertEqual(validators.validate_structured_action({'intent': intent})['intent'], intent)
+
+    @patch('tracker.ai.orchestrator._build_trusted_location_context', side_effect=RuntimeError('offline'))
+    @patch('tracker.ai.orchestrator._geocode_place', return_value=None)
+    def test_location_request_still_reaches_analysis(self, _geo, _ctx):
+        with patch('tracker.ai.orchestrator.gemini_analyze', return_value={'analysis': 'x'}) as g, \
+             patch('tracker.ai.orchestrator.grok_review', return_value={}), \
+             patch('tracker.ai.orchestrator.merge_ai_results', return_value={'success': True, 'message': 'ok', 'structured_actions': []}):
+            process_user_query("projected revenue for a cafe in Indiranagar")
+        g.assert_called_once()

@@ -45,6 +45,69 @@ def _extract_location_and_business_from_query(query: str) -> Tuple[Optional[str]
     return None, None
 
 
+# Questions about the platform's own features, answered directly with a button to the feature.
+# Each entry: (trigger phrases, reply, actions). Checked in order; first match wins.
+FEATURE_ANSWERS = [
+    (('synergy',),
+     "🔗 **Synergy analysis** shows how the businesses already around a location help (or hurt) the one you want to open. "
+     "For each recommendation it gives a **synergy score out of 100**, a level (High / Medium / Low), the main nearby "
+     "businesses that feed you customers, and the revenue **with synergy** (conservative / moderate / optimistic uplift, "
+     "each capped) next to the base projection.\n\nYou'll find it on the dashboard under the recommendation cards, in "
+     "**Business Analytics**, and in Section 7 of the PDF report. Analyse a location on the map first.",
+     [{"intent": "view_synergy", "label": "🔗 Open Synergy Analysis"},
+      {"intent": "view_heatmap", "label": "🔥 View Heatmap"}]),
+    (('3d', 'revenue graph', 'revenue chart', 'projected revenue', 'revenue timeline', 'revenue trend', 'live revenue',
+      'analytics graph', 'bar graph'),
+     "📊 The **Projected revenue 3D graph** (Business Analytics) shows the revenue engine's estimate for every business "
+     "category within the 5 km radius, spread over time. Switch between **Live, Daily, Weekly and Monthly** views, drag to "
+     "rotate, scroll to zoom, and use **View as table** for the exact numbers. The cards above it show the total projected "
+     "revenue, peak period, top category and growth.\n\nThese are model projections from OpenStreetMap places, not real "
+     "sales. Analyse a location on the map first so the graph has data.",
+     [{"intent": "view_revenue_graph", "label": "📊 Open Revenue Graph"},
+      {"intent": "view_heatmap", "label": "🔥 View Heatmap"}]),
+    (('favorite', 'favourite', 'saved place', 'saved location', 'saved spot', 'my places', 'compare places',
+      'compare saved'),
+     "❤️ **Favorites**: tap the heart on the map (next to the selected place's name) to save a location. On the "
+     "**Favorites** page every saved place shows its latest analysis: projected monthly revenue and synergy score. "
+     "Select several places and generate a **Favorites comparison report** (PDF) that ranks them side by side with "
+     "crowd level, revenue estimate, potential score, competitors, a Go / No-Go verdict and a SWOT for each place.",
+     [{"intent": "open_favorites", "label": "❤️ Open Favorites"}]),
+    (('report',),
+     "📄 The **PDF report** covers the selected location in 11 sections: executive summary, location overview, crowd "
+     "heatmap, business recommendations, competition, revenue forecast, synergy, feasibility, roadmap, risks and a final "
+     "checklist. The summary opens with a **Key points at a glance** box (verdict, base-case sales, biggest advantage, "
+     "biggest risk, first step), and important figures (₹ amounts, %, scores) and keywords are highlighted throughout. "
+     "Every figure is labelled Observed, Estimate, AI text or Template text.\n\nSelect a location, then say "
+     "*\"generate a report\"*.",
+     [{"intent": "generate_report", "label": "📄 Generate PDF report"},
+      {"intent": "open_favorites", "label": "❤️ Compare Favorites"}]),
+]
+
+_FEATURE_QUESTION = re.compile(
+    r'^\s*(what|how|where|why|which|explain|tell\s+me|show|open|take\s+me|go\s+to|can\s+i|can\s+you|do\s+you|is\s+there|'
+    r'i\s+want\s+to\s+see|view|see)\b', re.IGNORECASE)
+
+
+# "in Indiranagar", "near MG Road": the question is about a place, so the AI answers it with live data.
+_NAMES_A_PLACE = re.compile(r'\b(?:in|at|near)\s+(?!the\b|my\b|this\b|that\b|a\b|an\b|it\b|me\b)[a-z]{3,}', re.IGNORECASE)
+
+
+def _feature_answer(query: str) -> Optional[Dict[str, Any]]:
+    """Answer questions about the platform's features (synergy, 3D graph, favorites, report)."""
+    lower = query.lower()
+    if _NAMES_A_PLACE.search(lower):
+        return None
+    for triggers, message, actions in FEATURE_ANSWERS:
+        if not any(t in lower for t in triggers):
+            continue
+        # Bare feature names ("synergy", "favorites") count; otherwise it has to be phrased as a question
+        # or command, so "revenue graph for a cafe in Indiranagar" style analysis requests still reach the AI.
+        if len(lower.split()) > 3 and not _FEATURE_QUESTION.match(lower):
+            return None
+        return {"success": True, "message": message, "structured_actions": list(actions)}
+    return None
+
+
 def _geocode_place(place_name: str) -> Optional[Dict[str, Any]]:
     """Geocode a place name in India using Nominatim with caching."""
     if not place_name:
@@ -284,14 +347,25 @@ def process_user_query(
 • **Chat & brainstorm**: Ask me questions like a friend about business ideas and locations
 • **Check Feasibility**: Ask *"Is a cafe feasible in Koramangala?"*
 • **Analyze Footfall**: Ask *"Show crowd density in Indiranagar"*
-• **Navigate Anywhere**: Say *"Take me to map"*, *"Show analytics"*, or *"Where are my reports?"*
+• **Projected revenue 3D graph**: Live, daily, weekly and monthly revenue by business category
+• **Synergy analysis**: How nearby businesses lift your revenue, with a score out of 100
+• **Favorites**: Save places with the ❤️ and compare them in one PDF report
+• **PDF report**: Say *"Generate a report"* for an 11-section report with the key points highlighted
+• **Navigate Anywhere**: Say *"Take me to map"*, *"Show analytics"*, or *"Open my favorites"*
 
 What are you thinking of launching?""",
             "structured_actions": [
                 {"intent": "view_heatmap", "label": "🔥 View Heatmap"},
-                {"intent": "open_dashboard", "label": "📈 Open Dashboard"},
+                {"intent": "view_revenue_graph", "label": "📊 Revenue Graph"},
+                {"intent": "view_synergy", "label": "🔗 Synergy Analysis"},
+                {"intent": "open_favorites", "label": "❤️ Favorites"},
             ]
         }
+
+    # 1i. Questions about the platform's features
+    feature_reply = _feature_answer(sanitized_query)
+    if feature_reply:
+        return feature_reply
 
     # Step 2: Validate Query Relevance (Strict Domain Scope for specialized queries)
     if not is_platform_relevant(sanitized_query):

@@ -105,7 +105,7 @@ function setup({ fetchImpl } = {}) {
     w.WebSocket = function () { return { send() {}, close() {}, readyState: 0 }; };
     w.SupabaseAuth = w.SupabaseAuth || { getSession: async () => null, requireAuth: (_n, fn) => fn(), showNotification() {} };
     w.eval(FAV_SCRIPT);
-    w.eval(SCRIPT + '\n;window.__t = { addMonoBaseLayers, addSaveLocationControl, focusMapOnOpportunityOrLocation, setDashboardMap: (m) => { dashboardMap = m; map = m; }, findPopularPlaces, updateCrowdIntensityDropdown, getCurrentAnalysisLocation, setAnalysisLocation, findMyLocation, selectSearchResult, createOpportunityCard, loadRecommendationCardsForLocation, initDashboardRecsDropdown, openRecommendationsView, renderBusinessRecommendationCards, openDashboardDataOnlyMode };');
+    w.eval(SCRIPT + '\n;window.__t = { addBaseLayers, addSaveLocationControl, focusMapOnOpportunityOrLocation, setDashboardMap: (m) => { dashboardMap = m; map = m; }, findPopularPlaces, updateCrowdIntensityDropdown, getCurrentAnalysisLocation, setAnalysisLocation, findMyLocation, selectSearchResult, createOpportunityCard, loadRecommendationCardsForLocation, initDashboardRecsDropdown, openRecommendationsView, renderBusinessRecommendationCards, openDashboardDataOnlyMode };');
     const m = w.L.map();
     w.__t.setDashboardMap(m);
     return { w, log, m };
@@ -396,17 +396,13 @@ test('startup form flow ends zoomed in on the submitted location', async () => {
 });
 
 
-test('heatmap base map: darkened satellite plus white road/building outline layer, both CORS-enabled', () => {
+test('heatmap base map: full-colour MapTiler Basic, CORS-enabled', () => {
     const { w, m } = setup({ fetchImpl: async () => json(200, {}) });
-    const group = w.__t.addMonoBaseLayers(m);
-    const [sat, lines] = group.layers;
-    assert.match(sat.url, /maptiler\.com\/tiles\/satellite-v2/);
-    assert.equal(sat.opts.className, 'mono-sat');
-    assert.match(lines.url, /maptiler\.com\/maps\/toner-v2/);
-    assert.equal(lines.opts.className, 'mono-lines');
-    assert.ok(sat.opts.crossOrigin && lines.opts.crossOrigin, 'PDF capture needs CORS tiles');
-    assert.ok(lines.opts.zIndex > sat.opts.zIndex);
-    assert.match(sat.opts.attribution, /OpenStreetMap/);
+    const layer = w.__t.addBaseLayers(m);
+    assert.match(layer.url, /maptiler\.com\/maps\/basic-v2/);
+    assert.equal(layer.opts.className, undefined, 'no greyscale filter class');
+    assert.ok(layer.opts.crossOrigin, 'PDF capture needs CORS tiles');
+    assert.match(layer.opts.attribution, /OpenStreetMap/);
 });
 
 test('map control offers a heart for the selected location (search, pin, GPS, form all set it)', () => {

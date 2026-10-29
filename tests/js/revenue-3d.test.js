@@ -71,8 +71,8 @@ test('Indian number formatting and compact axis labels', () => {
     assert.equal(R.compactINR(950), '₹950');
     assert.equal(R.formatPct(3.14), '+3.1%');
     assert.equal(R.formatPct(null), '—');
-    assert.deepEqual([...R.gradientColor(0)], [96, 96, 96]);     // dark grey
-    assert.deepEqual([...R.gradientColor(1)], [255, 255, 255]);  // white
+    assert.deepEqual([...R.gradientColor(0)], [34, 211, 238]);   // cyan
+    assert.deepEqual([...R.gradientColor(1)], [236, 72, 153]);   // pink
 });
 
 test('no analysed area: clean empty state, no request, no default data', async () => {
