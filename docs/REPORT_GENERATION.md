@@ -188,6 +188,7 @@ Request body for `generate`:
 - **System:** WeasyPrint needs **Pango**:
   - macOS: `brew install pango`
   - Debian/Ubuntu: `apt-get install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fontconfig` (already added to the `Dockerfile`)
+  - Windows: install MSYS2 (`winget install MSYS2.MSYS2`), then run `pacman -S mingw-w64-ucrt-x86_64-pango` in the MSYS2 shell. WeasyPrint loads the DLLs from `C:\msys64\ucrt64\bin` (override with `WEASYPRINT_DLL_DIRECTORIES`). Without Pango, reports use the short ReportLab fallback and a warning is logged.
 - **Design:** editorial layout on warm ivory pages, with the cover, Feasibility and Final recommendations on deep-navy pages and the Executive summary on a royal-blue page (palette in `report_generator/theme.py`, shared by the stylesheet, charts and flowcharts; page colours are CSS named pages in `templates/reports/report.html`). Charts and flowcharts are drawn on ivory, so they read as cards on dark pages. Fonts are bundled in `report_generator/fonts/` (SIL OFL): **Fraunces** for headings and italic statements, **DM Sans** for body text, and **DM Mono** for small uppercase labels, tags, table headers and page metadata. DM Sans and Fraunces include the ₹ glyph; DejaVu Sans (bundled with matplotlib) covers remaining symbols such as ☐. No system fonts are needed.
 - **Frontend tests:** `npm install` (jsdom dev dependency), then `npm run test:js`.
 

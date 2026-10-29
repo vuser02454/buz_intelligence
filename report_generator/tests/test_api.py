@@ -1,3 +1,4 @@
+import io
 import json
 import uuid
 from datetime import timedelta
@@ -175,6 +176,6 @@ class ReportAPITests(TestCase):
         stale = Report.objects.create(owner_id='u-12345678', location_name='x', latitude=1, longitude=1, radius_m=2000,
                                       status=Report.RUNNING, expires_at=timezone.now() + timedelta(hours=1))
         Report.objects.filter(id=stale.id).update(updated_at=timezone.now() - timedelta(minutes=30))
-        call_command('cleanup_reports', stdout=open('/dev/null', 'w'))
+        call_command('cleanup_reports', stdout=io.StringIO())
         self.assertFalse(Report.objects.filter(id=old.id).exists())
         self.assertEqual(Report.objects.get(id=stale.id).status, Report.FAILED)

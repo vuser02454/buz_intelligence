@@ -273,6 +273,9 @@ Browser (Leaflet map, dashboard, Three.js graph, chatbot)
   brew install pango                                      # macOS
   sudo apt-get install libpango-1.0-0 libpangoft2-1.0-0   # Debian/Ubuntu
   ```
+  On Windows, install [MSYS2](https://www.msys2.org/) (`winget install MSYS2.MSYS2`), then in the
+  MSYS2 shell run `pacman -S mingw-w64-ucrt-x86_64-pango`. WeasyPrint finds `C:\msys64\ucrt64\bin`
+  by itself; set `WEASYPRINT_DLL_DIRECTORIES` if MSYS2 lives elsewhere.
 * Node.js 18+ (only for the frontend tests)
 
 ### Quick start

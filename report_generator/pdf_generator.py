@@ -7,11 +7,15 @@ DM Mono) plus DejaVu Sans from matplotlib as a symbol fallback. The URL
 fetcher refuses everything else, so text in a report (location names, AI
 output) can never make the renderer fetch a remote or local URL.
 """
+import logging
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import matplotlib
 from django.template.loader import render_to_string
+
+logger = logging.getLogger(__name__)
 
 REPORT_FONT_DIR = (Path(__file__).resolve().parent / 'fonts').resolve()
 FALLBACK_FONT_DIR = (Path(matplotlib.get_data_path()) / 'fonts' / 'ttf').resolve()
@@ -44,7 +48,7 @@ def _make_fetcher():
                 return super().fetch(url, headers)
             parsed = urlparse(url)
             if parsed.scheme == 'file':
-                path = Path(unquote(parsed.path)).resolve()
+                path = Path(url2pathname(parsed.path)).resolve()  # handles Windows drive letters
                 if path.parent in FONT_DIRS and path.suffix == '.ttf':
                     return super().fetch(url, headers)
             raise URLFetchingError(f'Blocked resource: {url[:80]}')
@@ -223,7 +227,9 @@ def render_pdf(context):
         pdf = document.write_pdf()
         return pdf, len(document.pages)
     except Exception:
-        # Fall back cleanly to ReportLab (pure python, no external GTK/Pango dependency)
+        # Fall back cleanly to ReportLab (pure python, no external GTK/Pango dependency). The fallback
+        # is a short summary, so say why: on Windows this usually means Pango is not installed.
+        logger.warning('WeasyPrint unavailable; using the short ReportLab report', exc_info=True)
         return _render_pdf_reportlab(context)
 
 
