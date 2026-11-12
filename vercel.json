@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "buildCommand": "echo 'Build skipped'",
+  "installCommand": "echo 'Install skipped'",
+  "outputDirectory": ".",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "https://buz-intelligence-backend-4rlo.onrender.com/$1"
+    }
+  ]
+}

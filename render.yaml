@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: buz_intelligence
+    env: docker
+    dockerfilePath: Dockerfile
+    # Render will automatically create a free PostgreSQL add‑on if you enable it later
+    buildCommand: ""      # Dockerfile handles the build
+    startCommand: ""      # Docker CMD handles the start
+    plan: free
+    autoDeploy: true

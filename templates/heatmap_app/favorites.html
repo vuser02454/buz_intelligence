@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}My Favorites | Business Intelligence{% endblock %}
+
+{% block extra_css %}
+<style>
+    .fav-page { padding: 48px 20px; position: relative; z-index: 2; }
+    .fav-wrap { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 32px; }
+    .fav-section { background: rgba(13,17,23,.85); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,.08);
+                   border-radius: 20px; padding: 24px 28px; box-shadow: 0 20px 50px rgba(0,0,0,.5); }
+    .fav-section h2 { font-size: 1.15rem; margin: 0; color: #f1f5f9; display: flex; align-items: center; gap: 10px; }
+    .fav-section .sub { color: #94a3b8; font-size: .85rem; margin: 4px 0 18px; }
+    .fav-badge { background: rgba(244,63,94,.15); color: #fb7185; border-radius: 999px; padding: 2px 10px; font-size: .8rem; }
+    .fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+    .fav-card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 14px;
+                padding: 16px; display: flex; flex-direction: column; gap: 8px; transition: border-color .2s, transform .2s; }
+    .fav-card:hover { border-color: rgba(251,113,133,.4); transform: translateY(-2px); }
+    .fav-card.rec:hover { border-color: rgba(56,189,248,.4); }
+    .fav-card h3 { font-size: 1rem; margin: 0; color: #f1f5f9; word-break: break-word; }
+    .fav-card-top { display: flex; justify-content: space-between; align-items: center; min-height: 28px; }
+    .fav-cat { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; }
+    .fav-score { font-size: .75rem; color: #38bdf8; font-weight: 600; }
+    .fav-select { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin: 0; }
+    .fav-select input { accent-color: #38bdf8; }
+    .fav-addr { color: #94a3b8; font-size: .8rem; margin: 0; }
+    .fav-reasons { margin: 0; padding-left: 18px; color: #cbd5e1; font-size: .8rem; }
+    .fav-actions { display: flex; gap: 14px; margin-top: auto; padding-top: 6px; font-size: .8rem; }
+    .fav-actions a { color: #38bdf8; text-decoration: none; }
+    .fav-remove { background: none; border: 0; color: #f87171; padding: 0; cursor: pointer; font-size: .8rem; }
+    .fav-remove:disabled { opacity: .5; }
+    .fav-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .fav-chip { background: rgba(255,255,255,.05); color: #cbd5e1; border: 1px solid rgba(255,255,255,.1);
+                border-radius: 999px; padding: 4px 14px; font-size: .8rem; cursor: pointer; text-transform: capitalize; }
+    .fav-chip.on { background: rgba(244,63,94,.18); border-color: #fb7185; color: #fda4af; }
+    .fav-empty { grid-column: 1 / -1; text-align: center; color: #94a3b8; padding: 28px 12px; }
+    .fav-empty i { font-size: 2rem; color: #475569; margin-bottom: 8px; }
+    .fav-gate { text-align: center; padding: 48px 24px; }
+    .fav-gate i { font-size: 2.4rem; color: #fb7185; margin-bottom: 12px; }
+    .fav-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; font-size: .75rem; color: #94a3b8; }
+    .fav-meta i { margin-right: 5px; opacity: .8; }
+    .fav-analysis { align-self: flex-start; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+                    padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,.15); color: #cbd5e1; }
+    .fav-an-fresh { border-color: rgba(255,255,255,.6); color: #fff; }
+    .fav-an-none { color: #8a8a8a; border-style: dashed; }
+    .fav-summary { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 6px; background: rgba(255,255,255,.04);
+                   border: 1px solid rgba(255,255,255,.08); font-size: .78rem; color: #cbd5e1; }
+    .fav-summary.muted { color: #8a8a8a; }
+    .fav-summary-label { font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; color: #8a8a8a; }
+    .fav-summary strong { color: #f1f5f9; font-size: .88rem; }
+    .fav-actions { flex-wrap: wrap; align-items: center; }
+    .fav-open { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-weight: 600;
+                background: #fff; color: #080808 !important; }
+    .fav-open:hover { background: #dcdcdc; }
+    .fav-search-wrap { position: relative; max-width: 360px; margin-bottom: 14px; }
+    .fav-search-wrap i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #777; pointer-events: none; }
+    .fav-search-wrap input { padding-left: 34px; }
+    @media (max-width: 575.98px) { .fav-section { padding: 18px 14px; } .fav-page { padding: 24px 12px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fav-page" id="favorites-page">
+    <div class="fav-wrap">
+        <div id="fav-gate" class="fav-section fav-gate d-none">
+            <i class="fas fa-heart"></i>
+            <h2 class="justify-content-center">Sign in to see your favorites</h2>
+            <p class="sub">Save places you love and get picks tailored to you.</p>
+            <a class="btn btn-primary-blue" href="{% url 'login' %}?next={{ request.path }}">Sign In</a>
+        </div>
+
+        <div id="fav-content" class="d-none" style="display:flex; flex-direction:column; gap:32px;">
+            <!-- My Favorites (Places) -->
+            <section class="fav-section">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                    <h2><i class="fas fa-heart text-danger"></i> Saved Locations <span class="fav-badge" id="fav-count">0</span></h2>
+                    <button type="button" class="btn btn-outline-info btn-sm" id="btn-download-favs-report" title="Full analysis of each saved place plus a comparison table">
+                        <i class="fas fa-file-pdf me-1"></i> Download All Favorites Report
+                    </button>
+                </div>
+                <p class="sub">Locations and places you've saved from the heatmap, search, Popular Places and recommendations. Open one to jump straight to its analysis; tick places to compare only those in the report.</p>
+                <div class="fav-search-wrap d-none">
+                    <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                    <input type="search" id="fav-search" class="form-control form-control-sm" placeholder="Search saved locations" aria-label="Search saved locations">
+                </div>
+                <div id="fav-chips" class="fav-chips"></div>
+                <div id="fav-list" class="fav-grid"></div>
+            </section>
+
+            <!-- Generated Business Reports (Stored Reports) -->
+            <section class="fav-section" id="fav-reports-section">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                    <h2><i class="fas fa-file-pdf text-primary"></i> Generated Business Reports <span class="fav-badge" id="reports-count" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">0</span></h2>
+                    <a href="/dashboard/?auto_map=true" class="btn btn-primary-blue btn-sm">
+                        <i class="fas fa-map-location-dot me-1"></i> New Map Report
+                    </a>
+                </div>
+                <p class="sub">Full detailed business intelligence reports stored for your account to download anytime.</p>
+                <div id="reports-list" class="fav-grid">
+                    <div class="fav-empty"><i class="fas fa-spinner fa-spin"></i><p>Loading reports…</p></div>
+                </div>
+            </section>
+
+            <!-- Recommended for you -->
+            <section class="fav-section">
+                <h2><i class="fas fa-wand-magic-sparkles text-info"></i> Recommended for you</h2>
+                <p class="sub" id="rec-sub">Loading picks…</p>
+                <div id="rec-list" class="fav-grid"></div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}

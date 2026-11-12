@@ -1,0 +1,341 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <title>{% block title %}Business Intelligence{% endblock %}</title>
+    <!-- Apply the saved theme before first paint (see static/js/theme-toggle.js) -->
+    <script>
+        (function () {
+            var t = 'light';
+            try { if (localStorage.getItem('bi-theme') === 'dark') t = 'dark'; } catch (e) {}
+            document.documentElement.dataset.theme = t;
+            document.documentElement.dataset.dm = t;
+        })();
+    </script>
+
+    <!-- Bootstrap 5 CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+        integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{% static 'css/style.css' %}?v=3.7">
+    <link rel="stylesheet" href="{% static 'css/onboarding.css' %}?v=1.3">
+    <!-- Monochrome theme (every page, including sign-in) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter+Tight:wght@700;800&family=Inter:wght@300;400&family=IBM+Plex+Mono:wght@400&display=swap">
+    <link rel="stylesheet" href="{% static 'css/theme-mono.css' %}?v=4.5">
+    {% block extra_css %}{% endblock %}
+    <link rel="stylesheet" href="{% static 'css/animations.css' %}?v=1.3">
+    <link rel="stylesheet" href="{% static 'css/auth.css' %}?v=1.2">
+    <link rel="stylesheet" href="{% static 'css/dark-mode.css' %}?v=1.3">
+</head>
+
+<body class="base-layout theme-mono">
+    <div id="bg-animation"></div>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-base">
+        <div class="container-fluid container-custom">
+            <a class="navbar-brand" href="{% url 'home' %}">
+                <i class="fas fa-map-location-dot me-2"></i>
+                <span>Business Intelligence</span>
+            </a>
+            <!-- Dark mode toggle: the moon ⇄ sun animation as an icon button (static/css/dark-mode.css) -->
+            <button type="button" class="dm-toggle" role="switch" aria-checked="false" aria-label="Dark mode" title="Switch to dark mode"
+                data-lottie="{% static 'lottie/moon-to-sun.json' %}">
+                <span class="dm-lottie" aria-hidden="true"></span>
+                <!-- fallback icons if the animation cannot load -->
+                <svg class="dm-icon dm-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg>
+                <svg class="dm-icon dm-icon-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a.6.6 0 0 0-.8-.7A9.8 9.8 0 1 0 21.2 15.4a.6.6 0 0 0-.7-.8z"/></svg>
+            </button>
+            <button class="navbar-toggler navbar-toggler-custom" type="button" data-bs-toggle="collapse"
+                data-bs-target="#navbarMain" aria-controls="navbarMain" aria-expanded="false"
+                aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarMain">
+                <div class="ms-auto d-flex align-items-center gap-3">
+                    <ul class="navbar-nav align-items-center">
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'home' %}"><i class="fas fa-home me-1"></i>Home</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'dashboard' %}"><i class="fas fa-th-large me-1"></i>Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'contact_us' %}"><i class="fas fa-envelope me-1"></i>Contact Us</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'favorites' %}"><i class="fas fa-heart me-1"></i>Favorites</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" id="navbar-tour-btn" role="button" title="Interactive Navigation Tour"><i class="fas fa-compass me-1"></i>Guide</a>
+                        </li>
+                        {% block nav_links %}{% endblock %}
+                    </ul>
+                    <div id="navbar-auth-section" class="ms-lg-2">
+                        <a href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-light btn-sm px-3">
+                            <i class="fas fa-sign-in-alt me-1"></i>Sign In
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Flash Messages -->
+    {% if messages %}
+    <div class="container-fluid container-custom py-2">
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Main Content -->
+    <main class="main-content {% block main_class %}{% endblock %}">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    {% block footer %}{% endblock %}
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+        crossorigin="anonymous"></script>
+
+    <!-- Supabase JS Client & Auth Integration (loaded once per page; pinned version) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+    <script>
+        window.SUPABASE_CONFIG = {
+            url: '{{ SUPABASE_URL|default:"https://ijsfmdgysmwovaighumv.supabase.co" }}',
+            key: '{{ SUPABASE_ANON_KEY|default:"sb_publishable_EdW1JxXZSkEA1uV4Yl4eIg_F9dvq-2h" }}',
+            siteUrl: '{{ SITE_URL|escapejs }}'
+        };
+    </script>
+    <script src="{% static 'js/supabase-auth.js' %}?v=3.1"></script>
+    <script src="{% static 'js/favorites.js' %}?v=2.1"></script>
+
+    {% block extra_js %}{% endblock %}
+    <!-- Custom JS (after extra_js so Leaflet loads first on map pages) -->
+    <script src="{% static 'js/synergy.js' %}?v=1.1"></script>
+    <script src="{% static 'js/main.js' %}?v=4.8"></script>
+    <script src="{% static 'js/report-generator.js' %}?v=2.5"></script>
+    <script src="{% static 'js/onboarding.js' %}?v=1.1"></script>
+    <script src="{% static 'js/animations.js' %}?v=1.3"></script>
+    <!-- lottie-web (light build: SVG renderer) plays the toggle's moon ⇄ sun icon -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie_light.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="{% static 'js/theme-toggle.js' %}?v=1.2"></script>
+
+    <!-- Three.js (3D revenue graph) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    {% block extra_body %}{% endblock %}
+
+    <!-- Form Modal -->
+    <div id="form-modal" class="modal">
+        <div class="modal-content"
+            style="background:#0a0a0a;color:#ffffff;border:1px solid #222;border-radius:16px;padding:24px;max-width:560px;width:90%;position:relative;box-shadow: 0 25px 60px rgba(0,0,0,0.7);">
+            <span class="close"
+                style="position:absolute;top:16px;right:20px;font-size:22px;cursor:pointer;color:#94a3b8;line-height:1;transition:color 0.2s;"
+                onmouseenter="this.style.color='#fff'" onmouseleave="this.style.color='#94a3b8'">&#10005;</span>
+            <h2 style="color:#ffffff;margin-bottom:4px;font-size:1.25rem;font-weight:700;"><i
+                    class="fas fa-building me-2" style="color:#4CAF50;"></i>Business Information</h2>
+            <p style="color:#64748b;font-size:0.82rem;margin-bottom:16px;">Fill in your details to check feasibility and
+                find the ideal location.</p>
+            <form id="business-form">
+                {% csrf_token %}
+                <!-- Name & Email row -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                    <div>
+                        <label
+                            style="color:#94a3b8;font-weight:600;font-size:0.78rem;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Your
+                            Name</label>
+                        <input type="text" id="id_name" name="name" class="form-control biz-input"
+                            placeholder="Full name" required>
+                    </div>
+                    <div>
+                        <label
+                            style="color:#94a3b8;font-weight:600;font-size:0.78rem;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Email</label>
+                        <input type="email" id="id_email" name="email" class="form-control biz-input"
+                            placeholder="you@example.com" required>
+                    </div>
+                </div>
+
+                <!-- Phone -->
+                <div style="margin-bottom:10px;">
+                    <label
+                        style="color:#94a3b8;font-weight:600;font-size:0.78rem;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;"><i
+                            class="fas fa-phone me-1" style="color:#4CAF50;"></i>Phone</label>
+                    <input type="text" id="id_phone" name="phone" class="form-control biz-input"
+                        placeholder="Phone number" required>
+                </div>
+
+                <!-- Business Location -->
+                <div style="margin-bottom:10px;position:relative;">
+                    <label
+                        style="color:#94a3b8;font-weight:600;font-size:0.78rem;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;"><i
+                            class="fas fa-map-marker-alt me-1" style="color:#4CAF50;"></i>Business Location</label>
+                    <input type="text" id="form-location-search" class="form-control biz-input"
+                        placeholder="Search area to load business types...">
+                    <div id="form-location-suggestions" class="suggestions-list"></div>
+                </div>
+
+                <!-- Business Type DROPDOWN -->
+                <div style="margin-bottom:10px;">
+                    <label
+                        style="color:#94a3b8;font-weight:600;font-size:0.78rem;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;"><i
+                            class="fas fa-store me-1" style="color:#4CAF50;"></i>Business Type to Start</label>
+                    <select id="id_business_type_dropdown" name="business_type" class="form-control biz-select"
+                        required>
+                        <option value="">-- Search a location first --</option>
+                        <!-- Options populated dynamically by JS after location is selected -->
+                    </select>
+                    <input type="hidden" id="id_business_type" name="business_type_val">
+                    <small id="form-flow-hint" style="color:#64748b;font-size:0.75rem;margin-top:4px;display:block;">
+                        <i class="fas fa-info-circle me-1"></i>Select a location above to load recommended business
+                        types.
+                    </small>
+                </div>
+
+                <!-- Desired Crowd Intensity -->
+                <div style="margin-bottom:16px;">
+                    <label
+                        style="color:#94a3b8;font-weight:600;font-size:0.78rem;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;"><i
+                            class="fas fa-users me-1" style="color:#4CAF50;"></i>Desired Crowd Intensity</label>
+                    <select id="id_crowd_intensity" name="crowd_intensity" class="form-control biz-select" required>
+                        <option value="">-- Select intensity --</option>
+                        <option value="low">Low — Quiet, few visitors</option>
+                        <option value="medium">Moderate — Steady foot traffic</option>
+                        <option value="high">High — Busy, high footfall</option>
+                    </select>
+                </div>
+
+                <!-- Hidden fields -->
+                <input type="hidden" id="id_recommended_business" name="recommended_business">
+                <input type="hidden" id="id_business_type_search" name="business_type_hidden">
+                <input type="hidden" id="id_business_type_select" name="business_type_hidden2">
+                <input type="hidden" id="id_latitude" name="latitude">
+                <input type="hidden" id="id_longitude" name="longitude">
+
+                <!-- Feasibility Result Banner -->
+                <div id="feasibility-result-banner"
+                    style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:8px;font-size:0.88rem;font-weight:600;">
+                </div>
+
+                <!-- Action Buttons: Submit + Reset -->
+                <div style="display:flex;gap:10px;">
+                    <button type="submit" id="submit-business-form-btn"
+                        style="flex:1;padding:10px;background:linear-gradient(135deg,#4CAF50,#2e7d32);color:#fff;border:none;border-radius:8px;font-size:0.95rem;font-weight:700;cursor:pointer;transition:all 0.2s;letter-spacing:0.03em;">
+                        <i class="fas fa-check-circle me-2"></i>Check Feasibility & Submit
+                    </button>
+                    <button type="button" id="reset-business-form-btn"
+                        style="padding:10px 18px;background:rgba(255,255,255,0.05);color:#94a3b8;border:1px solid rgba(255,255,255,0.15);border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:all 0.2s;"
+                        onclick="document.getElementById('business-form').reset(); document.getElementById('id_business_type_dropdown').innerHTML='<option value=\'\'>-- Search a location first --</option>'; document.getElementById('feasibility-result-banner').style.display='none'; document.getElementById('form-message').innerHTML=''; document.getElementById('id_latitude').value=''; document.getElementById('id_longitude').value='';">
+                        <i class="fas fa-redo me-1"></i>Reset
+                    </button>
+                </div>
+            </form>
+            <div id="form-message" class="form-message" style="margin-top:10px;font-size:0.88rem;"></div>
+        </div>
+    </div>
+
+
+    <!-- Chat Toggle (floating FAB to open chatbot) -->
+    <button type="button" id="chat-toggle-btn" class="chat-fab-btn" title="Open Chat" aria-label="Open chat assistant">
+        <i class="fas fa-robot"></i>
+    </button>
+
+    <!-- Chatbot Sidebar -->
+    <aside id="chatbot-sidebar" class="chatbot-sidebar chatbot-sidebar-closed">
+        <div id="chatbot-container" class="chatbot-container">
+            <div class="chatbot-header">
+                <h3 style="display: flex; align-items: center; gap: 8px; font-size: 1.05rem; font-weight: 700; margin: 0;">
+                    <i class="fas fa-robot" style="color: #818cf8;"></i> AI Assistant
+                </h3>
+                <div class="chatbot-header-actions">
+                    <button type="button" id="chatbot-toggle" class="chatbot-toggle-btn" title="Minimize">-</button>
+                    <button type="button" id="chatbot-close-btn" class="chatbot-close-btn" title="Close">x</button>
+                </div>
+            </div>
+            <div id="chatbot-messages" class="chatbot-messages"></div>
+            <!-- Live Search Preview Popup (Appears right above input when searching features) -->
+            <div id="chatbot-search-preview" class="chatbot-search-preview d-none"></div>
+            <div class="chatbot-input-container">
+                <input type="text" id="chatbot-input" class="chatbot-input" placeholder="Search features or ask (e.g. map, analytics, reports)...">
+                <button type="button" id="chatbot-send" class="chatbot-send-btn">
+                    <i class="fas fa-paper-plane me-1"></i> Send
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Map Toggle (main.js compatibility, hidden) -->
+    <button type="button" id="map-toggle-btn" class="d-none" aria-hidden="true"></button>
+
+    <!-- Supabase Auth Gate Modal (styles: .auth-gate-* in static/css/animations.css) -->
+    <div id="supabase-auth-gate-modal" class="modal auth-gate" style="display: none; align-items: center; justify-content: center; z-index: 10500;">
+        <div class="modal-dialog modal-dialog-centered auth-gate-dialog">
+            <div class="modal-content auth-gate-card">
+                <button type="button" class="btn-close-modal auth-gate-close" aria-label="Close">&times;</button>
+
+                <div class="auth-gate-head">
+                    <div class="auth-gate-icon" aria-hidden="true"><i class="fas fa-lock"></i></div>
+                    <h3 class="auth-gate-title">Sign in to continue</h3>
+                    <p class="auth-gate-sub">
+                        Please sign in to use <strong id="auth-gate-feature-name">this feature</strong>.
+                    </p>
+                </div>
+
+                <div id="modal-auth-error" class="alert alert-danger py-2 px-3 small d-none auth-gate-error"></div>
+
+                <!-- Quick Login Form inside modal -->
+                <form id="modal-supabase-login-form">
+                    <div class="auth-gate-field">
+                        <label for="modal-auth-email">Email</label>
+                        <div class="position-relative">
+                            <i class="fas fa-envelope auth-gate-field-icon"></i>
+                            <input type="email" id="modal-auth-email" class="form-control" placeholder="name@example.com" required autocomplete="email">
+                        </div>
+                    </div>
+
+                    <div class="auth-gate-field">
+                        <label for="modal-auth-password">Password</label>
+                        <div class="position-relative">
+                            <i class="fas fa-lock auth-gate-field-icon"></i>
+                            <input type="password" id="modal-auth-password" class="form-control" placeholder="••••••••" required autocomplete="current-password">
+                            <button type="button" class="auth-gate-eye" aria-label="Show password" aria-pressed="false" title="Show password"
+                                onclick="const i = document.getElementById('modal-auth-password'), show = i.type === 'password'; i.type = show ? 'text' : 'password'; this.firstElementChild.className = show ? 'fas fa-eye-slash' : 'fas fa-eye'; this.title = show ? 'Hide password' : 'Show password'; this.setAttribute('aria-label', this.title); this.setAttribute('aria-pressed', show);">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="modal-login-btn" class="btn auth-gate-submit">
+                        <i class="fas fa-sign-in-alt me-1"></i> Sign In &amp; Continue
+                    </button>
+                </form>
+
+                <div class="auth-gate-foot">
+                    <p>New here or need to register an account?</p>
+                    <a href="{% url 'login' %}" id="auth-gate-full-login-btn" class="btn btn-outline-light btn-sm w-100">
+                        <i class="fas fa-user-plus me-1"></i> Open Full Login / Registration Page
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

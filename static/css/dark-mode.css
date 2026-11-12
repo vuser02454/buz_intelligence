@@ -1,0 +1,92 @@
+/*
+ * Dark mode + its toggle (driven by static/js/theme-toggle.js).
+ *
+ *   html[data-theme="dark"]  switches the palette   (set a moment after the press)
+ *   html[data-dm="dark"]     is the toggle's state  (set the instant it is pressed)
+ *
+ * The site theme (theme-mono.css) is built on two tokens, --color-1 (ink) and --color-2
+ * (paper), plus opacity variants, so dark mode is a token swap rather than a second theme.
+ * A few surfaces are "islands" that keep their own palette whatever the mode.
+ */
+
+/* ------------------------------------------------------------ 1. dark palette */
+html[data-theme="dark"] { color-scheme: dark; --bi-ink: #FFFFFF; --bi-paper: #0A0A0B; --bi-ink-rgb: 255, 255, 255; --bi-line: rgba(255, 255, 255, 0.2); --bi-muted: rgba(255, 255, 255, 0.62); }
+html[data-theme="dark"] body.theme-mono {
+    --color-1: #FFFFFF; --color-2: #0A0A0B;
+    --on-light-2: rgba(255, 255, 255, 0.74); --on-light-3: rgba(255, 255, 255, 0.62); --line-light: rgba(255, 255, 255, 0.2);
+    --danger-on-light: #FF8A80;
+    --nav-bg: #0A0A0B; --nav-text: #FFFFFF; --nav-hover: #0A0A0B;
+    --primary-blue: #FFFFFF; --primary-blue-hover: #FFFFFF;
+    --footer-bg: #0A0A0B; --glass-bg: #0A0A0B;
+    --bg-primary: #0A0A0B; --bg-secondary: #0A0A0B; --bg-tertiary: #0A0A0B; --bg-panel: #0A0A0B;
+    --text-primary: #FFFFFF; --accent-color: #FFFFFF; --accent-hover: #FFFFFF;
+}
+
+/* light islands: hard-coded white surfaces keep black ink in dark mode */
+html[data-theme="dark"] body.theme-mono :is(.onboarding-popover, .onboarding-welcome-card, .leaflet-popup, .leaflet-control, .mono-fav-control) {
+    --color-1: #000000; --color-2: #FFFFFF;
+    --on-light-2: rgba(0, 0, 0, 0.72); --on-light-3: rgba(0, 0, 0, 0.6); --line-light: rgba(0, 0, 0, 0.16);
+    --text-primary: #000000; --primary-blue: #000000; --accent-color: #000000;
+}
+/* dark islands: panels designed as black-on-white inversions stay dark instead of turning white */
+html[data-theme="dark"] body.theme-mono :is(.r3d, .r3d-stage) {
+    --color-1: #141416; --color-2: #FFFFFF;
+}
+html[data-theme="dark"] body.theme-mono .r3d { border-color: var(--line-dark) !important; }
+
+/* the story radar's coloured zones read better a little stronger on black */
+html[data-theme="dark"] .bi-blob { filter: blur(18px) saturate(1.2); }
+html[data-theme="dark"] .bi-sweep { background: conic-gradient(from 0deg, rgba(255, 255, 255, 0.2), transparent 22%); }
+
+/* ------------------------------------------------------------ 2. the switch-over */
+/* View Transitions: the new palette spreads out from the toggle in a circle (JS animates the
+   clip-path); the default cross-fade is switched off. */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+/* fallback where View Transitions are missing: a short colour fade */
+html.dm-fading, html.dm-fading * { transition: background-color 0.5s ease, color 0.5s ease, border-color 0.5s ease, fill 0.5s ease !important; }
+
+/* ------------------------------------------------------------ 3. the toggle */
+/*
+ * An icon button showing the moon ⇄ sun animation (static/lottie/moon-to-sun.json, the same
+ * animation as moon-to-sun.gif): a moon in dark mode, a sun in light mode. Clicking plays the
+ * animation forwards (to light) or backwards (to dark). The icon takes the page's ink colour,
+ * so it is black on the light navbar and white on the dark one.
+ */
+.dm-toggle {
+    position: relative; flex: none; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%;
+    display: grid; place-items: center; background: none; color: var(--bi-ink, #000); cursor: pointer;
+    -webkit-tap-highlight-color: transparent; outline-offset: 3px; margin-inline: 8px;
+    transition: scale 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.dm-toggle::before {    /* soft hover disc */
+    content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--bi-ink, #000); opacity: 0; scale: 0.6;
+    transition: opacity 0.25s ease, scale 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dm-toggle:hover::before, .dm-toggle:focus-visible::before { opacity: 0.08; scale: 1; }
+.dm-toggle:active { scale: 0.9; }
+.dm-toggle:focus-visible { outline: 2px solid var(--bi-ink, #000); }
+
+.dm-lottie { position: relative; width: 24px; height: 24px; display: none; }
+.dm-lottie svg { display: block; width: 100%; height: 100%; }
+.dm-lottie svg path { fill: currentColor; }      /* the animation's fills are white; follow the ink colour instead */
+.dm-has-lottie .dm-lottie { display: block; }
+.dm-has-lottie .dm-icon { display: none; }
+
+/* fallback icons, used only if the animation cannot load */
+.dm-icon { position: absolute; width: 20px; height: 20px; transition: opacity 0.3s ease, rotate 0.5s cubic-bezier(0.22, 1, 0.36, 1), scale 0.4s ease; }
+.dm-icon-moon { opacity: 0; rotate: -70deg; scale: 0.6; }
+html[data-dm="dark"] .dm-icon-sun  { opacity: 0; rotate: 70deg; scale: 0.6; }
+html[data-dm="dark"] .dm-icon-moon { opacity: 1; rotate: 0deg; scale: 1; }
+
+/* navbar placement: always visible, beside the menu button on small screens */
+.navbar-base .dm-toggle { margin-left: auto; }
+@media (min-width: 992px) { .navbar-base .dm-toggle { order: 5; margin-left: 10px; margin-right: 0; } }
+
+/* theme-mono.css styles every button with layered !important rules; keep this one a bare icon */
+@layer theme-mono {
+    body.theme-mono .dm-toggle { background: none !important; border: 0 !important; color: var(--color-1) !important; height: 38px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dm-toggle, .dm-toggle * , .dm-toggle::before { animation: none !important; transition: none !important; }
+}

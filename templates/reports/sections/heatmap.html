@@ -1,0 +1,74 @@
+{% load report_tags %}
+<h2 class="section" id="sec-heatmap"><span class="num">3</span>&nbsp;Crowd heatmap analysis</h2>
+
+{% if heatmap_image %}
+<figure>
+  <img class="map" src="{{ heatmap_image }}" alt="Screenshot of the live crowd heatmap for {{ s.location.name }}">
+  <div class="legend">
+    <span><span class="swatch" style="background:#ff0000"></span>High (≥ {{ thresholds.high }}/km²)</span>
+    <span><span class="swatch" style="background:#ffaa00"></span>Medium ({{ thresholds.medium }}–{{ thresholds.high_minus_one }}/km²)</span>
+    <span><span class="swatch" style="background:#00cc00"></span>Low (&lt; {{ thresholds.medium }}/km²)</span>
+  </div>
+  <figcaption>Figure 3.1 – Screenshot of the live heatmap for <strong>{{ s.location.name }}</strong>, captured in your browser at {{ capture.captured_at_local|default:"the time of the request" }}{% if capture.zoom %} (map zoom {{ capture.zoom|floatformat:0 }}){% endif %}. It shows the same location as the rest of this report (heatmap centre {{ capture.offset_m|floatformat:0 }} m from the selected point). Each circle marks the average position of the features in one sector; the website draws High, Medium and Low circles at a fixed 750 / 600 / 450 m radius (red / amber / green), so circle size shows the level, not the sector's extent. <span class="tag tag-observed">Observed</span></figcaption>
+</figure>
+{% else %}
+<div class="warning">
+  <strong>The live heatmap screenshot is not available for this report.</strong>
+  {% if capture.capture_error %}Reason: {{ capture.capture_error }}.{% else %}No screenshot was supplied with the request.{% endif %}
+  The figure below is a static map drawn by the server from the same analysis (every mapped place plus the sector circles). It is <strong>not</strong> a screenshot of the website's map and has no street basemap, but it shows exactly this report's location and data.
+</div>
+{% if charts.sector_map %}
+<figure>
+  <img class="map" src="{{ charts.sector_map }}" alt="Reconstructed sector map">
+  <figcaption>Figure 3.1 – Server-drawn static map (not a screenshot): grey dots are the mapped places; coloured circles are the sector centroids with the website's colours and circle sizes. Grey lines show the 3 distance rings and 3 compass wedges. <span class="tag tag-observed">Observed</span></figcaption>
+</figure>
+{% else %}
+<p class="unavailable">Data unavailable for this analysis.</p>
+{% endif %}
+{% endif %}
+
+{% if capture.counts_differ %}
+<div class="note-box">The map on screen showed {{ capture.client_sector_counts.high }} High, {{ capture.client_sector_counts.medium }} Medium and {{ capture.client_sector_counts.low }} Low sectors, while the server's analysis for this report found {{ s.heatmap.counts.high }}, {{ s.heatmap.counts.medium }} and {{ s.heatmap.counts.low }}. OpenStreetMap data can change between requests. The screenshot shows the earlier on-screen state; all numbers in this report come from the server's analysis.</div>
+{% endif %}
+
+{% if s.heatmap.placeholder_used %}
+<div class="warning">No mapped features with coordinates were found within {{ s.location.radius_m }} m, so no sector could be classified. The website shows no heatmap circles in this case.</div>
+{% else %}
+<div class="kpis">
+  <div class="kpi"><div class="label">High-intensity sectors</div><div class="value">{{ s.heatmap.counts.high }} / 9</div><div class="note"><span class="tag tag-observed">Observed</span> ≥ {{ thresholds.high }} places/km²</div></div>
+  <div class="kpi"><div class="label">Medium-intensity sectors</div><div class="value">{{ s.heatmap.counts.medium }} / 9</div><div class="note"><span class="tag tag-observed">Observed</span> {{ thresholds.medium }}–{{ thresholds.high_minus_one }} places/km²</div></div>
+  <div class="kpi"><div class="label">Low-intensity sectors</div><div class="value">{{ s.heatmap.counts.low }} / 9</div><div class="note"><span class="tag tag-observed">Observed</span> below {{ thresholds.medium }}/km²; {{ s.heatmap.counts.empty }} sector(s) empty</div></div>
+</div>
+
+<h3>What the heatmap shows {% include "reports/sections/_src.html" with st=t.heatmap_recs %}</h3>
+<p>{{ t.heatmap_recs.data.heatmap_explanation|highlight }}</p>
+<p>{{ t.heatmap_recs.data.spatial_pattern|highlight }}</p>
+
+{% if charts.sectors %}
+<figure>
+  <img class="chart" src="{{ charts.sectors }}" alt="Mapped features per sector">
+  <figcaption>Figure 3.2 – Mapped features in each of the 9 sectors, coloured by the platform's intensity level. <span class="tag tag-observed">Observed</span></figcaption>
+</figure>
+{% endif %}
+
+<h4>Sector table</h4>
+<table>
+  <thead><tr><th>Compass wedge</th><th>Distance ring</th><th class="num">Mapped features</th><th>Level</th></tr></thead>
+  <tbody>
+  {% for sec in s.heatmap.sectors %}
+    <tr><td>{{ sec.wedge }}</td><td>{{ sec.ring }}</td><td class="num">{{ sec.count }}</td><td><span class="pill pill-{{ sec.intensity }}">{% if sec.intensity == 'empty' %}None{% else %}{{ sec.intensity|title }}{% endif %}</span></td></tr>
+  {% endfor %}
+  {% for sec in s.heatmap.extra_sectors %}
+    <tr><td colspan="2">Boundary bucket {{ sec.key }} (feature exactly on the edge)</td><td class="num">{{ sec.count }}</td><td><span class="pill pill-{{ sec.intensity }}">{{ sec.intensity|title }}</span></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h4>How to interpret this – and its limits</h4>
+<ul class="small">
+  <li>Levels are thresholds on the <em>density of mapped OpenStreetMap features</em> in a sector (High ≥ {{ thresholds.high }}/km², Medium {{ thresholds.medium }}–{{ thresholds.high_minus_one }}/km², Low below {{ thresholds.medium }}/km²; outer sectors are larger, so density is used rather than raw counts), checked against the code in <code>business_intelligence/analysis.py</code>.</li>
+  <li>Features are shops, food, services, offices, leisure and transit stops (street furniture such as benches is excluded).</li>
+  <li>The heatmap does not count people. Well-mapped areas can look busier than they are, and poorly mapped areas quieter.</li>
+  <li>The website footer's "Crowd Score" ({{ s.heatmap.website_crowd_score }}) is the number of features returned, capped at 100. It is not a measure of people.</li>
+</ul>

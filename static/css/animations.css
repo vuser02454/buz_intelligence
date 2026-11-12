@@ -1,0 +1,345 @@
+/*
+ * Site-wide motion layer (loaded after theme-mono.css, driven by static/js/animations.js).
+ *
+ * 1. Page entrance + scroll reveals        [data-reveal]  → .is-revealed
+ * 2. Dashboard scrollytelling              .bi-story (sticky visual + scrolling chapters)
+ * 3. Story loader (replaces spinners)      .bi-story-loader
+ * 4. Search bar intro                      .bi-search-intro on .map-top-bar-search
+ *    circle pops in → stretches to a pill → widens to full width → text types in
+ *
+ * Reveals use the individual `translate` / `scale` properties so they never fight the
+ * existing `transform` hover effects in style.css. Everything is switched off under
+ * prefers-reduced-motion.
+ */
+
+:root {
+    --bi-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --bi-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --bi-ink: #000;
+    --bi-ink-rgb: 0, 0, 0;
+    --bi-paper: #fff;
+    --bi-line: rgba(var(--bi-ink-rgb), 0.16);
+    --bi-muted: rgba(var(--bi-ink-rgb), 0.6);
+}
+
+/* ------------------------------------------------------------ 1. page + reveals */
+.main-content { animation: bi-page-in 0.6s var(--bi-ease-out) both; }
+@keyframes bi-page-in { from { opacity: 0; translate: 0 12px; } to { opacity: 1; translate: 0 0; } }
+
+.navbar-base .nav-link { position: relative; }
+.navbar-base .nav-link::after {
+    content: ""; position: absolute; left: 0.5rem; right: 0.5rem; bottom: 2px; height: 1px;
+    background: currentColor; scale: 0 1; transform-origin: left;
+    transition: scale 0.35s var(--bi-ease-out);
+}
+.navbar-base .nav-link:hover::after, .navbar-base .nav-link:focus-visible::after { scale: 1 1; }
+
+.js-anim [data-reveal] {
+    opacity: 0; translate: 0 28px;
+    transition: opacity 0.8s var(--bi-ease-out), translate 0.8s var(--bi-ease-out);
+    transition-delay: var(--reveal-delay, 0ms);
+}
+.js-anim [data-reveal="left"]  { translate: -28px 0; }
+.js-anim [data-reveal="scale"] { translate: 0 0; scale: 0.94; transition-property: opacity, scale; }
+.js-anim [data-reveal].is-revealed { opacity: 1; translate: 0 0; scale: 1; }
+
+/* hero title: words rise in one after another */
+.bi-word { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: 0.06em; }
+.bi-word > span { display: inline-block; translate: 0 105%; animation: bi-word-up 0.9s var(--bi-ease-out) forwards; animation-delay: calc(var(--i) * 70ms + 120ms); }
+@keyframes bi-word-up { to { translate: 0 0; } }
+
+/* scroll progress bar (dashboard launchpad only) */
+.bi-scroll-progress {
+    position: fixed; top: 56px; left: 0; right: 0; height: 2px; z-index: 1040;
+    background: var(--bi-ink); transform-origin: left; scale: var(--bi-progress, 0) 1; pointer-events: none;
+}
+.bi-scroll-progress[hidden] { display: none; }
+
+/* hero drifts back as the story starts */
+.feature-hero.bi-hero-scroll {
+    opacity: calc(1 - var(--bi-hero, 0) * 0.85);
+    translate: 0 calc(var(--bi-hero, 0) * -40px);
+    scale: calc(1 - var(--bi-hero, 0) * 0.04);
+    will-change: opacity, translate;
+}
+
+/* ------------------------------------------------------------ 2. scrollytelling */
+.bi-story {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px;
+    padding: 20px clamp(16px, 4vw, 60px) 20px; position: relative;
+}
+.bi-story-visual {
+    position: sticky; top: calc(56px + 12vh); align-self: start;
+    height: min(64vh, 520px); display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.bi-story-steps { display: flex; flex-direction: column; }
+.bi-step {
+    min-height: 78vh; display: flex; flex-direction: column; justify-content: center;
+    opacity: 0.22; transition: opacity 0.5s var(--bi-ease-out);
+}
+.bi-step.is-active { opacity: 1; }
+.bi-step-num {
+    font-family: var(--font-mono, ui-monospace, monospace); font-size: 13px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--bi-muted); margin-bottom: 10px;
+}
+.bi-step h2 {
+    font-family: var(--font-serif-display, Georgia, serif); font-weight: 400; font-size: clamp(30px, 4vw, 52px);
+    line-height: 1.02; margin: 0 0 14px; color: var(--bi-ink); text-transform: none;
+}
+.bi-step p { font-size: 17px; line-height: 1.5; max-width: 40ch; color: rgba(var(--bi-ink-rgb), 0.72); margin: 0; }
+.bi-step .bi-step-line { width: 0; height: 1px; background: var(--bi-ink); margin: 18px 0; transition: width 0.9s var(--bi-ease-out) 0.15s; }
+.bi-step.is-active .bi-step-line { width: 120px; }
+
+/* facts: one figure + label each, rising in one after another when the chapter is active */
+.bi-facts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 460px; }
+.bi-facts li {
+    border-top: 1px solid var(--bi-line); padding-top: 10px;
+    opacity: 0; translate: 0 14px; transition: opacity 0.6s var(--bi-ease-out), translate 0.6s var(--bi-ease-out);
+    transition-delay: calc(var(--i, 0) * 110ms + 250ms);
+}
+.bi-step.is-active .bi-facts li { opacity: 1; translate: 0 0; }
+.bi-fact-num { display: block; white-space: nowrap; font: 400 30px/1 var(--font-serif-display, Georgia, serif); color: var(--bi-ink); font-variant-numeric: tabular-nums; }
+.bi-fact-label { display: block; margin-top: 6px; font: 12px/1.35 var(--font-mono, ui-monospace, monospace); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bi-muted); }
+
+.bi-points { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 6px; max-width: 42ch; }
+.bi-points li { position: relative; padding-left: 18px; font-size: 15px; line-height: 1.45; color: rgba(var(--bi-ink-rgb), 0.72); }
+.bi-points li::before { content: ""; position: absolute; left: 0; top: 0.62em; width: 8px; height: 1px; background: var(--bi-ink); }
+
+/* the stage: one radar that turns into each chapter's picture, and finally into the dashboard */
+.bi-stage {
+    position: relative; width: min(100%, 460px); aspect-ratio: 1; border-radius: 50%;
+    border: 1px solid var(--bi-line); background: var(--bi-paper); overflow: hidden;
+    transition: border-radius 0.9s var(--bi-ease-out), border-color 0.6s, scale 0.9s var(--bi-ease-out);
+}
+.bi-rings {
+    position: absolute; inset: 0; transition: opacity 0.6s; background:
+        radial-gradient(circle, transparent 32%, var(--bi-line) 32.2%, transparent 32.6%),
+        radial-gradient(circle, transparent 65%, var(--bi-line) 65.2%, transparent 65.6%);
+}
+.bi-rings::before, .bi-rings::after { content: ""; position: absolute; background: var(--bi-line); }
+.bi-rings::before { left: 50%; top: 0; bottom: 0; width: 1px; }
+.bi-rings::after { top: 50%; left: 0; right: 0; height: 1px; }
+
+.bi-sweep {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: conic-gradient(from 0deg, rgba(var(--bi-ink-rgb), 0.12), transparent 22%);
+    animation: bi-spin 4s linear infinite; opacity: 0; transition: opacity 0.6s;
+}
+@keyframes bi-spin { to { rotate: 360deg; } }
+
+.bi-pin {
+    position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -22px 0 0 -11px; z-index: 3;
+    background: var(--bi-ink); border-radius: 50% 50% 50% 0; rotate: -45deg;
+    translate: 0 -160px; opacity: 0; transition: translate 0.8s var(--bi-ease-spring), opacity 0.3s, scale 0.4s;
+}
+.bi-pin::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--bi-paper); }
+.bi-pulse {
+    position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%;
+    border: 1px solid var(--bi-ink); opacity: 0;
+}
+.bi-blob {
+    position: absolute; border-radius: 50%; filter: blur(18px); opacity: 0; scale: 0.3;
+    transition: opacity 0.9s var(--bi-ease-out), scale 0.9s var(--bi-ease-out);
+}
+.bi-blob.hi  { background: rgba(220, 38, 38, 0.55); }
+.bi-blob.mid { background: rgba(245, 158, 11, 0.55); }
+.bi-blob.lo  { background: rgba(22, 163, 74, 0.45); }
+
+/* chapter 3: the 16 popular places found by the scan */
+.bi-pois i {
+    position: absolute; width: 9px; height: 9px; margin: -4.5px; border-radius: 50%; z-index: 2;
+    background: var(--bi-paper); border: 2px solid var(--bi-ink); scale: 0;
+    transition: scale 0.45s var(--bi-ease-spring); transition-delay: calc(var(--i) * 45ms);
+}
+/* chapter 4: projected revenue bars (colours of the 3D revenue graph) */
+.bi-bars { position: absolute; left: 22%; right: 22%; bottom: 24%; height: 44%; display: flex; align-items: flex-end; gap: 4%; z-index: 2; }
+.bi-bars i {
+    flex: 1; height: var(--h); border-radius: 4px 4px 0 0; transform-origin: bottom; scale: 1 0;
+    background: linear-gradient(to top, #22d3ee, #8b5cf6 55%, #ec4899);
+    transition: scale 0.8s var(--bi-ease-out); transition-delay: calc(var(--i) * 70ms);
+}
+.bi-bars::after { content: ""; position: absolute; left: -6%; right: -6%; bottom: 0; height: 1px; background: var(--bi-ink); scale: 0 1; transition: scale 0.6s var(--bi-ease-out); }
+/* chapter 5: the ranked top five */
+.bi-mark {
+    position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%; z-index: 2;
+    background: var(--bi-ink); color: var(--bi-paper); display: grid; place-items: center;
+    font: 600 12px/1 var(--font-mono, ui-monospace, monospace); scale: 0; transition: scale 0.5s var(--bi-ease-spring);
+}
+/* chapter 6: the radar becomes the dashboard — one mini tile per real feature tile */
+.bi-mini { position: absolute; inset: 9%; display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr; gap: 5%; z-index: 4; pointer-events: none; }
+.bi-mini span {
+    border: 1px solid var(--bi-line); border-radius: 10px; background: var(--bi-paper); padding: 12%;
+    display: flex; flex-direction: column; justify-content: space-between;
+    opacity: 0; scale: 0.4; transition: opacity 0.5s var(--bi-ease-out), scale 0.6s var(--bi-ease-spring);
+    transition-delay: calc(var(--i) * 70ms);
+}
+.bi-mini span i { width: 26px; height: 26px; border-radius: 7px; background: var(--bi-ink); color: var(--bi-paper); display: grid; place-items: center; font-size: 12px; }
+.bi-mini span::after { content: ""; height: 3px; width: 70%; border-radius: 2px; background: var(--bi-line); box-shadow: 0 -8px 0 var(--bi-line); }
+
+.bi-stage-caption {
+    margin-top: 16px; min-height: 1.4em; text-align: center; white-space: nowrap;
+    font: 13px var(--font-mono, ui-monospace, monospace); letter-spacing: 0.06em; text-transform: uppercase; color: var(--bi-muted);
+}
+
+/* chapter states (data-step: -1 before the story, then 0…5) */
+.bi-stage:is([data-step="0"], [data-step="1"], [data-step="2"]) .bi-sweep { opacity: 1; }
+.bi-stage:not([data-step="-1"]) .bi-pin { translate: 0 0; opacity: 1; }
+.bi-stage:not([data-step="-1"], [data-step="5"]) .bi-pulse { animation: bi-pulse 2s var(--bi-ease-out) infinite; }
+@keyframes bi-pulse { from { opacity: 0.8; scale: 1; } to { opacity: 0; scale: 9; } }
+
+.bi-stage:is([data-step="1"], [data-step="2"], [data-step="3"], [data-step="4"]) .bi-blob { opacity: 1; scale: 1; }
+.bi-stage[data-step="1"] .bi-blob:nth-child(odd) { transition-delay: 0.15s; }
+.bi-stage[data-step="2"] .bi-blob { opacity: 0.4; }
+.bi-stage[data-step="3"] .bi-blob { opacity: 0.18; }
+.bi-stage[data-step="4"] .bi-blob { opacity: 0.4; }
+
+.bi-stage[data-step="2"] .bi-pois i { scale: 1; }
+.bi-stage[data-step="3"] .bi-bars i { scale: 1 1; }
+.bi-stage[data-step="3"] .bi-bars::after { scale: 1 1; }
+.bi-stage[data-step="3"] .bi-pin { opacity: 0.25; }
+
+.bi-stage[data-step="4"] .bi-mark { scale: 1; }
+.bi-stage[data-step="4"] .bi-mark:nth-of-type(2) { transition-delay: 0.1s; }
+.bi-stage[data-step="4"] .bi-mark:nth-of-type(3) { transition-delay: 0.2s; }
+.bi-stage[data-step="4"] .bi-mark:nth-of-type(4) { transition-delay: 0.3s; }
+.bi-stage[data-step="4"] .bi-mark:nth-of-type(5) { transition-delay: 0.4s; }
+
+.bi-stage[data-step="5"] { border-radius: 22px; border-color: var(--bi-ink); }
+.bi-stage[data-step="5"] .bi-rings { opacity: 0; }
+.bi-stage[data-step="5"] .bi-pin { opacity: 0; scale: 0; }
+.bi-stage[data-step="5"] .bi-mini span { opacity: 1; scale: 1; }
+
+.bi-story-cta { margin-top: 22px; opacity: 0; translate: 0 10px; transition: opacity 0.5s 0.5s, translate 0.5s 0.5s var(--bi-ease-out); }
+.bi-step.is-active .bi-story-cta { opacity: 1; translate: 0 0; }
+
+/* the real dashboard emerges: heading, then each tile grows out of the story (scroll-scrubbed,
+   --e runs 0 → 1 per tile and is set by animations.js) */
+.bi-emerge-head { text-align: center; padding: 10px 16px 34px; }
+.bi-emerge-head .bi-step-num { margin-bottom: 8px; }
+.bi-emerge-head h2 { font-family: var(--font-serif-display, Georgia, serif); font-weight: 400; font-size: clamp(30px, 4vw, 52px); line-height: 1.02; margin: 0; color: var(--bi-ink); }
+.bi-emerge-arrow { width: 1px; height: 56px; margin: 0 auto 18px; background: var(--bi-ink); transform-origin: top; scale: 1 var(--e, 1); }
+
+.feature-grid.bi-emerge .feature-tile {
+    opacity: var(--e, 1);
+    scale: calc(0.78 + var(--e, 1) * 0.22);
+    translate: calc((1 - var(--e, 1)) * var(--dx, 0px)) calc((1 - var(--e, 1)) * var(--dy, -60px));
+    filter: blur(calc((1 - var(--e, 1)) * 6px));
+    will-change: opacity, scale, translate;
+}
+
+@media (max-width: 767.98px) {
+    .bi-story { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 16px 10px; }
+    .bi-story-visual { top: 60px; height: 44vh; z-index: 1; background: var(--bi-paper); }
+    .bi-stage { width: min(72vw, 280px); }
+    .bi-stage-caption { display: none; }
+    /* text cards scroll over the pinned radar */
+    .bi-step { min-height: 92vh; justify-content: flex-end; position: relative; z-index: 2; opacity: 1; padding-bottom: 6vh; }
+    .bi-step-body { background: var(--bi-paper); border: 1px solid var(--bi-line); border-radius: 10px; padding: 18px 16px; opacity: 0.35; transition: opacity 0.5s; }
+    .bi-step.is-active .bi-step-body { opacity: 1; border-color: var(--bi-ink); }
+    .bi-facts { gap: 10px; }
+    .bi-points { display: none; }
+    .bi-step p { font-size: 15px; }
+    .bi-fact-num { font-size: 24px; }
+    .bi-fact-label { font-size: 11px; }
+}
+
+/* ------------------------------------------------------------ 3. story loader */
+.bi-story-loader { grid-column: 1 / -1; width: 100%; padding: 48px 16px; display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; }
+.bi-loader-orb { position: relative; width: 64px; height: 64px; }
+.bi-loader-orb span { position: absolute; inset: 0; border: 1px solid var(--bi-ink); border-radius: 50%; animation: bi-pulse-sm 2.4s var(--bi-ease-out) infinite; }
+.bi-loader-orb span:nth-child(2) { animation-delay: 0.8s; }
+.bi-loader-orb span:nth-child(3) { animation-delay: 1.6s; }
+.bi-loader-orb::after { content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px; border-radius: 50%; background: var(--bi-ink); }
+@keyframes bi-pulse-sm { from { scale: 0.2; opacity: 1; } to { scale: 1.4; opacity: 0; } }
+
+.bi-loader-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; text-align: left; }
+.bi-loader-steps li {
+    display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--bi-muted);
+    opacity: 0.35; animation: bi-loader-step 10s infinite; animation-delay: calc(var(--i) * 2s);
+}
+.bi-loader-steps li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; border: 1px solid currentColor; flex: none; }
+@keyframes bi-loader-step {
+    0%, 2%   { opacity: 0.35; color: var(--bi-muted); translate: 0 0; }
+    5%, 18%  { opacity: 1; color: var(--bi-ink); translate: 6px 0; }
+    22%, 100% { opacity: 0.35; color: var(--bi-muted); translate: 0 0; }
+}
+.bi-loader-caption { font-size: 14px; color: var(--bi-muted); max-width: 46ch; margin: 0; }
+
+/* ------------------------------------------------------------ 4. search bar intro */
+.map-top-bar-search.bi-search-intro { animation: bi-search-shape 1.25s var(--bi-ease-out) both; transform-origin: center; }
+.map-top-bar-search.bi-search-intro > :not(.bi-search-icon) { animation: bi-search-content 0.5s var(--bi-ease-out) 0.95s both; }
+.map-top-bar-search.bi-search-intro .bi-search-icon { animation: bi-search-icon 1.25s var(--bi-ease-out) both; }
+
+/* circle pops in (scale), holds as a circle, stretches to a short pill, then to full width */
+@keyframes bi-search-shape {
+    0%   { clip-path: inset(0 calc(50% - 18px) round 999px); scale: 0; opacity: 0.4; border-radius: 999px; }
+    22%  { clip-path: inset(0 calc(50% - 18px) round 999px); scale: 1.08; opacity: 1; }
+    32%  { clip-path: inset(0 calc(50% - 18px) round 999px); scale: 1; }
+    55%  { clip-path: inset(0 calc(50% - 60px) round 999px); }
+    85%  { clip-path: inset(0 -2px round 999px); }
+    100% { clip-path: inset(0 -2px round 999px); }
+}
+@keyframes bi-search-content { from { opacity: 0; translate: 8px 0; } to { opacity: 1; translate: 0 0; } }
+/* the magnifier starts at the centre of the circle and slides to the left edge as it widens */
+@keyframes bi-search-icon {
+    0%, 32% { left: 50%; translate: -50% -50%; opacity: 0.4; }
+    55%     { opacity: 1; }
+    85%, 100% { left: 12px; translate: 0 -50%; opacity: 1; }
+}
+
+.map-top-bar-search { position: relative; }
+.map-top-bar-search.bi-has-icon { padding-left: 34px !important; border-radius: 999px !important; }
+.map-top-bar-search.bi-has-icon .btn { border-radius: 999px !important; }
+.bi-search-icon {
+    position: absolute; left: 12px; top: 50%; translate: 0 -50%; font-size: 13px; color: rgba(var(--bi-ink-rgb), 0.45);
+    pointer-events: none; z-index: 2; transition: color 0.25s, scale 0.25s var(--bi-ease-spring);
+}
+.map-top-bar-search:focus-within .bi-search-icon { color: var(--bi-ink); scale: 1.15; }
+.map-top-bar-search { transition: box-shadow 0.35s var(--bi-ease-out); }
+.map-top-bar-search:focus-within { box-shadow: 0 0 0 3px rgba(var(--bi-ink-rgb), 0.08) !important; }
+
+/* typewriter caret on the placeholder */
+.bi-typing::placeholder { color: rgba(var(--bi-ink-rgb), 0.55); }
+
+/* ------------------------------------------------------------ reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .main-content, .bi-word > span, .map-top-bar-search.bi-search-intro,
+    .map-top-bar-search.bi-search-intro > *, .bi-sweep, .bi-loader-orb span, .bi-loader-steps li { animation: none !important; }
+    .bi-word > span { translate: 0 0; }
+    .js-anim [data-reveal] { opacity: 1; translate: 0 0; scale: 1; transition: none; }
+    .feature-hero.bi-hero-scroll { opacity: 1; translate: 0 0; scale: 1; }
+    .bi-step, .bi-step-body, .bi-facts li { opacity: 1 !important; translate: 0 0; }
+    .bi-emerge-arrow { display: none; }
+    .bi-scroll-progress { display: none; }
+}
+
+/* ------------------------------------------------------------ theme integration
+ * theme-mono.css puts its !important rules in a cascade layer, which outranks unlayered CSS,
+ * so the few overrides that must beat it live in the same layer. */
+@layer theme-mono {
+    /* `overflow-x: hidden` made .dashboard-main a scroll container, which stops the story
+       visual from sticking; `clip` hides the same overflow without that side effect. */
+    body.theme-mono .dashboard-main:has(#dashboard-launchpad:not(.d-none)) { overflow-x: clip !important; overflow-y: visible !important; }
+
+    /* theme-mono's desktop `display: grid !important` also applied while the map was hidden
+       (.d-none), leaving an empty map panel under the launchpad. */
+    body.theme-mono .dynamic-map-container.d-none { display: none !important; }
+
+    /* search bar as one pill: magnifier, borderless input, button */
+    body.theme-mono .dynamic-map-top-bar .map-top-bar-search.bi-has-icon {
+        padding: 0 2px 0 34px !important; border: 1px solid var(--color-1) !important; border-radius: 999px !important;
+    }
+    body.theme-mono .dynamic-map-top-bar .map-top-bar-search.bi-has-icon .form-control {
+        border: 0 !important; background: transparent !important; padding-left: 0 !important; border-radius: 0 !important;
+    }
+    body.theme-mono .dynamic-map-top-bar .map-top-bar-search.bi-has-icon .btn {
+        border-radius: 999px !important; height: 30px !important; min-height: 0 !important; padding: 0 14px !important; line-height: 1 !important;
+    }
+    body.theme-mono .map-top-bar-search:focus-within { box-shadow: 0 0 0 3px rgba(var(--bi-ink-rgb), 0.1) !important; }
+
+    body.theme-mono :is(.bi-step, .bi-emerge-head) h2 {
+        font-family: var(--font-serif-display) !important; font-weight: 400 !important; text-transform: none !important;
+        font-size: clamp(32px, 4.2vw, 56px) !important; line-height: 1 !important; letter-spacing: -0.01em !important;
+    }
+    body.theme-mono .bi-story-cta a { text-decoration: none !important; display: inline-flex; align-items: center; gap: 8px; }
+}

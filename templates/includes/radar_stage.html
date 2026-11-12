@@ -1,0 +1,52 @@
+{# The radar used by the dashboard story and the sign-in page. `autoplay` cycles the chapters by itself. #}
+<div class="bi-stage" data-step="-1"{% if autoplay %} data-autoplay{% endif %}>
+    <div class="bi-rings"></div>
+    <div class="bi-sweep"></div>
+    <div class="bi-blob hi"  style="left:30%;top:28%;width:34%;height:34%;"></div>
+    <div class="bi-blob mid" style="left:52%;top:46%;width:30%;height:30%;"></div>
+    <div class="bi-blob lo"  style="left:18%;top:58%;width:26%;height:26%;"></div>
+    <div class="bi-blob mid" style="left:58%;top:16%;width:22%;height:22%;"></div>
+    <div class="bi-blob hi"  style="left:40%;top:62%;width:20%;height:20%;"></div>
+    <div class="bi-pois">
+        <i style="left:24%;top:30%;--i:0"></i>
+        <i style="left:36%;top:20%;--i:1"></i>
+        <i style="left:52%;top:14%;--i:2"></i>
+        <i style="left:68%;top:24%;--i:3"></i>
+        <i style="left:80%;top:38%;--i:4"></i>
+        <i style="left:84%;top:56%;--i:5"></i>
+        <i style="left:74%;top:72%;--i:6"></i>
+        <i style="left:60%;top:84%;--i:7"></i>
+        <i style="left:42%;top:86%;--i:8"></i>
+        <i style="left:26%;top:76%;--i:9"></i>
+        <i style="left:16%;top:58%;--i:10"></i>
+        <i style="left:18%;top:42%;--i:11"></i>
+        <i style="left:40%;top:36%;--i:12"></i>
+        <i style="left:62%;top:40%;--i:13"></i>
+        <i style="left:66%;top:60%;--i:14"></i>
+        <i style="left:38%;top:64%;--i:15"></i>
+    </div>
+    <div class="bi-bars">
+        <i style="--h:36%;--i:0"></i>
+        <i style="--h:52%;--i:1"></i>
+        <i style="--h:46%;--i:2"></i>
+        <i style="--h:70%;--i:3"></i>
+        <i style="--h:62%;--i:4"></i>
+        <i style="--h:92%;--i:5"></i>
+    </div>
+    <div class="bi-pulse"></div>
+    <div class="bi-pin"></div>
+    <span class="bi-mark" style="left:44%;top:40%;">1</span>
+    <span class="bi-mark" style="left:66%;top:58%;">2</span>
+    <span class="bi-mark" style="left:30%;top:68%;">3</span>
+    <span class="bi-mark" style="left:68%;top:28%;">4</span>
+    <span class="bi-mark" style="left:52%;top:74%;">5</span>
+    <div class="bi-mini">
+        <span style="--i:0"><i class="fas fa-lightbulb"></i></span>
+        <span style="--i:1"><i class="fas fa-fire-alt"></i></span>
+        <span style="--i:2"><i class="fas fa-brain"></i></span>
+        <span style="--i:3"><i class="fas fa-chart-line"></i></span>
+        <span style="--i:4"><i class="fas fa-clipboard-check"></i></span>
+        <span style="--i:5"><i class="fas fa-map-pin"></i></span>
+        <span style="--i:6"><i class="fas fa-rocket"></i></span>
+    </div>
+</div>

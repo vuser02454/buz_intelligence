@@ -1,0 +1,655 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dashboard - Crowd Heatmap{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+{% endblock %}
+
+
+{% block main_class %}dashboard-main-page{% endblock %}
+{% block content %}
+<div class="dashboard-wrapper">
+    <!-- Sidebar -->
+    <aside class="dashboard-sidebar">
+        <div class="sidebar-brand">
+            <i class="fas fa-map-location-dot me-2"></i>
+            <span>Heatmap</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="{% url 'dashboard' %}" id="sidebar-dashboard-link" class="sidebar-link active">
+                <i class="fas fa-th-large me-3"></i>Dashboard
+            </a>
+            <a href="{% url 'dashboard' %}?auto_map=true" id="sidebar-heatmap-link" class="sidebar-link">
+                <i class="fas fa-map me-3"></i>Map
+            </a>
+            <a href="{% url 'dashboard' %}?ai=true" id="sidebar-ai-link" class="sidebar-link">
+                <i class="fas fa-chart-line me-3"></i>Business Analytics
+            </a>
+            <a href="{% url 'dashboard' %}?recs=true" id="sidebar-recs-link" class="sidebar-link">
+                <i class="fas fa-lightbulb me-3"></i>Business Recommendations
+            </a>
+            <a href="#" id="sidebar-startup-form-link" class="sidebar-link">
+                <i class="fas fa-clipboard-list me-3"></i>Startup Form
+            </a>
+            <a href="{% url 'favorites' %}" id="sidebar-favorites-link" class="sidebar-link">
+                <i class="fas fa-heart me-3"></i>Favorites
+            </a>
+            <a href="#" id="sidebar-tour-link" class="sidebar-link" role="button" title="Interactive Navigation Tour">
+                <i class="fas fa-compass me-3"></i>Guided Tour
+            </a>
+
+            <a href="{% url 'home' %}" class="sidebar-link">
+                <i class="fas fa-arrow-left me-3"></i>Back to Map
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="dropdown sidebar-user-dropdown">
+                <div class="sidebar-user" id="sidebarUserMenuBtn" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" style="cursor:pointer;">
+                    <div class="sidebar-user-avatar" id="sidebar-user-avatar-placeholder"></div>
+                    <div class="sidebar-user-info">
+                        <span class="sidebar-user-name" id="sidebar-user-name-placeholder">Guest User</span>
+                    </div>
+                    <i class="fas fa-chevron-up sidebar-user-chevron"></i>
+                </div>
+                <div class="dropdown-menu sidebar-user-menu" aria-labelledby="sidebarUserMenuBtn">
+                    <a class="sidebar-user-menu-item" href="/profile/">
+                        <i class="fas fa-user-circle"></i>
+                        <span>Account Settings</span>
+                    </a>
+                    <hr class="sidebar-user-divider">
+                    <button class="sidebar-user-menu-item item-danger" id="sidebar-dropdown-logout" type="button">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Sign Out</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="dashboard-main">
+        <header class="dashboard-header">
+            <button type="button" id="sidebar-toggle-btn" class="sidebar-toggle-btn" aria-label="Toggle sidebar">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="dashboard-header-actions ms-auto d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-dark btn-sm btn-nav-tour" id="dashboard-tour-header-btn" title="Start Interactive Navigation Tour">
+                    <i class="fas fa-compass me-1"></i>Tour
+                </button>
+                <div id="dashboard-header-auth-pill" class="d-flex align-items-center gap-2"></div>
+            </div>
+        </header>
+
+        <!-- Feature Showcase Launchpad -->
+        <div id="dashboard-launchpad" class="feature-showcase-launchpad">
+            <div class="feature-hero">
+                <div class="feature-hero-badge">
+                    <span class="badge-dot"></span>
+                    <span>AI-Powered Platform</span>
+                </div>
+                <h1 class="feature-hero-title">Business <strong>Intelligence</strong></h1>
+                <p class="feature-hero-sub">Real-time crowd analytics, business intelligence, and location insights —
+                    all in one platform.</p>
+                <div class="feature-cta-row">
+                    <button class="btn-feature-primary" id="btn-show-map">
+                        <i class="fas fa-map-marked-alt"></i> Launch Live Map
+                    </button>
+                    <button class="btn-feature-outline" id="btn-show-ai-recommender">
+                        <i class="fas fa-brain"></i> AI Recommender
+                    </button>
+                    <button class="btn-feature-outline" id="btn-show-recommendations">
+                        <i class="fas fa-lightbulb"></i> Business Recommendations
+                    </button>
+                </div>
+            </div>
+
+            <!-- Scrollytelling: how the platform works (static/js/animations.js drives the chapters).
+                 The pinned radar turns into each chapter's picture and finally into the dashboard. -->
+            <section class="bi-story" aria-label="How it works">
+                <div class="bi-story-visual" aria-hidden="true">
+                    {% include "includes/radar_stage.html" %}
+                    <div class="bi-stage-caption"></div>
+                </div>
+                <div class="bi-story-steps">
+                    <article class="bi-step" data-caption="5 km radar scan">
+                        <div class="bi-step-body">
+                            <div class="bi-step-num">Chapter 01 / Search</div>
+                            <h2>Drop a pin anywhere.</h2>
+                            <p>Search a neighbourhood by name or click straight on the map. Every analysis starts from that one point.</p>
+                            <div class="bi-step-line"></div>
+                            <ul class="bi-facts">
+                                <li style="--i:0"><span class="bi-fact-num" data-count="5" data-suffix=" km">5 km</span><span class="bi-fact-label">analysis radius</span></li>
+                                <li style="--i:1"><span class="bi-fact-num">Live</span><span class="bi-fact-label">OpenStreetMap data</span></li>
+                                <li style="--i:2"><span class="bi-fact-num" data-count="1">1</span><span class="bi-fact-label">click to start</span></li>
+                            </ul>
+                            <ul class="bi-points">
+                                <li>Type-ahead search suggests areas as you type</li>
+                                <li>Find My Location centres the map on you</li>
+                                <li>Recent searches and saved favorites stay one click away</li>
+                            </ul>
+                        </div>
+                    </article>
+                    <article class="bi-step" data-caption="Live crowd intensity">
+                        <div class="bi-step-body">
+                            <div class="bi-step-num">Chapter 02 / Read the crowd</div>
+                            <h2>See where people actually are.</h2>
+                            <p>The circle is split into sectors and each one is coloured by how busy it is, so crowded streets and quiet pockets are obvious at a glance.</p>
+                            <div class="bi-step-line"></div>
+                            <ul class="bi-facts">
+                                <li style="--i:0"><span class="bi-fact-num" data-count="3">3</span><span class="bi-fact-label">intensity levels</span></li>
+                                <li style="--i:1"><span class="bi-fact-num">Sector</span><span class="bi-fact-label">level detail</span></li>
+                                <li style="--i:2"><span class="bi-fact-num">Live</span><span class="bi-fact-label">place density</span></li>
+                            </ul>
+                            <ul class="bi-points">
+                                <li>Red for high, amber for moderate, green for low</li>
+                                <li>Counts every mapped shop, café, office and transit stop</li>
+                                <li>The legend and place count sit under the map</li>
+                            </ul>
+                        </div>
+                    </article>
+                    <article class="bi-step" data-caption="16 popular places">
+                        <div class="bi-step-body">
+                            <div class="bi-step-num">Chapter 03 / Popular places</div>
+                            <h2>Find what is already thriving.</h2>
+                            <p>The radar picks out the busiest businesses around your pin and lays them out as cards you can compare side by side.</p>
+                            <div class="bi-step-line"></div>
+                            <ul class="bi-facts">
+                                <li style="--i:0"><span class="bi-fact-num" data-count="16">16</span><span class="bi-fact-label">top places</span></li>
+                                <li style="--i:1"><span class="bi-fact-num">4×4</span><span class="bi-fact-label">card matrix</span></li>
+                                <li style="--i:2"><span class="bi-fact-num" data-count="5" data-suffix=" km">5 km</span><span class="bi-fact-label">scan radius</span></li>
+                            </ul>
+                            <ul class="bi-points">
+                                <li>Crowd timing and the best window to visit each place</li>
+                                <li>A route drawn on the map to any place you pick</li>
+                                <li>Save a place to Favorites with the heart</li>
+                            </ul>
+                        </div>
+                    </article>
+                    <article class="bi-step" data-caption="Projected revenue">
+                        <div class="bi-step-body">
+                            <div class="bi-step-num">Chapter 04 / Revenue</div>
+                            <h2>Put a number on the location.</h2>
+                            <p>Footfall around the pin feeds a revenue model, so every business type gets an estimate instead of a guess.</p>
+                            <div class="bi-step-line"></div>
+                            <ul class="bi-facts">
+                                <li style="--i:0"><span class="bi-fact-num" data-count="100" data-prefix="0–">0–100</span><span class="bi-fact-label">potential score</span></li>
+                                <li style="--i:1"><span class="bi-fact-num" data-count="4">4</span><span class="bi-fact-label">time views</span></li>
+                                <li style="--i:2"><span class="bi-fact-num">₹</span><span class="bi-fact-label">daily and monthly</span></li>
+                            </ul>
+                            <ul class="bi-points">
+                                <li>Daily and monthly revenue estimates per business type</li>
+                                <li>A 3D graph with live, daily, weekly and monthly views</li>
+                                <li>A business health grade for the area</li>
+                            </ul>
+                        </div>
+                    </article>
+                    <article class="bi-step" data-caption="Top 5 opportunities">
+                        <div class="bi-step-body">
+                            <div class="bi-step-num">Chapter 05 / Decide</div>
+                            <h2>Know what to open, and where.</h2>
+                            <p>The ML model and the revenue engine rank the five best businesses for the area and mark each one on the map.</p>
+                            <div class="bi-step-line"></div>
+                            <ul class="bi-facts">
+                                <li style="--i:0"><span class="bi-fact-num" data-count="5">5</span><span class="bi-fact-label">ranked picks</span></li>
+                                <li style="--i:1"><span class="bi-fact-num">Months</span><span class="bi-fact-label">to break even</span></li>
+                                <li style="--i:2"><span class="bi-fact-num">Synergy</span><span class="bi-fact-label">with neighbours</span></li>
+                            </ul>
+                            <ul class="bi-points">
+                                <li>Revenue, break-even time and competition for every pick</li>
+                                <li>Filter the ranking by business category</li>
+                                <li>Check your own idea with the feasibility engine</li>
+                            </ul>
+                        </div>
+                    </article>
+                    <article class="bi-step" data-caption="Your dashboard">
+                        <div class="bi-step-body">
+                            <div class="bi-step-num">Chapter 06 / Your dashboard</div>
+                            <h2>It all lands on one dashboard.</h2>
+                            <p>Every step you just scrolled through is a tool on your launchpad. Keep scrolling and it assembles below.</p>
+                            <div class="bi-step-line"></div>
+                            <ul class="bi-facts">
+                                <li style="--i:0"><span class="bi-fact-num" data-count="7">7</span><span class="bi-fact-label">tools</span></li>
+                                <li style="--i:1"><span class="bi-fact-num" data-count="20" data-suffix="+">20+</span><span class="bi-fact-label">page PDF reports</span></li>
+                                <li style="--i:2"><span class="bi-fact-num" data-count="1">1</span><span class="bi-fact-label">launchpad</span></li>
+                            </ul>
+                            <ul class="bi-points">
+                                <li>Open any tool from its tile or from the sidebar</li>
+                                <li>Export a detailed PDF report for any location</li>
+                                <li>Take the guided tour whenever you want a walkthrough</li>
+                            </ul>
+                            <div class="bi-story-cta">
+                                <a class="btn-feature-primary" href="{% url 'dashboard' %}?auto_map=true"><i class="fas fa-map-marked-alt"></i> Start with the map</a>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <!-- The real dashboard emerges from the story -->
+            <div class="bi-emerge-head">
+                <div class="bi-emerge-arrow" aria-hidden="true"></div>
+                <div class="bi-step-num">Your dashboard</div>
+                <h2>Seven tools, one launchpad.</h2>
+            </div>
+
+            <div class="feature-grid">
+                <!-- Business Recommendations -->
+                <div class="feature-tile tile-ai">
+                    <div class="tile-glow"></div>
+                    <div class="tile-icon"><i class="fas fa-lightbulb"></i></div>
+                    <h3>Business Recommendations</h3>
+                    <p>Top 5 businesses to open around the location you searched, ranked from live map data, the ML
+                        model and the revenue engine – with revenue, break-even and competition for each.</p>
+                    <ul class="tile-features">
+                        <li><i class="fas fa-check"></i> Based on your searched location</li>
+                        <li><i class="fas fa-check"></i> Revenue &amp; break-even estimates</li>
+                        <li><i class="fas fa-check"></i> Filter by business category</li>
+                    </ul>
+                    <button class="tile-action" id="btn-show-recommendations-2">Open <i class="fas fa-arrow-right"></i></button>
+                </div>
+
+                <!-- Feature 1 -->
+                <div class="feature-tile tile-heatmap">
+                    <div class="tile-glow"></div>
+                    <div class="tile-icon"><i class="fas fa-fire-alt"></i></div>
+                    <h3>Live Heatmap</h3>
+                    <p>Visualize real-time crowd density across any area with dynamic colour-coded heat overlays — red
+                        for high, orange for moderate, green for low.</p>
+                    <ul class="tile-features">
+                        <li><i class="fas fa-check"></i> 5km radius scan</li>
+                        <li><i class="fas fa-check"></i> Sector-level intensity</li>
+                        <li><i class="fas fa-check"></i> Live POI density</li>
+                    </ul>
+                    <button class="tile-action" id="btn-show-map-2">Launch <i class="fas fa-arrow-right"></i></button>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="feature-tile tile-ai">
+                    <div class="tile-glow"></div>
+                    <div class="tile-icon"><i class="fas fa-brain"></i></div>
+                    <h3>AI Business Recommender</h3>
+                    <p>Submit your startup criteria and receive precision-matched business location recommendations with
+                        orange marker pinpoints placed directly inside the right crowd zone.</p>
+                    <ul class="tile-features">
+                        <li><i class="fas fa-check"></i> Business type matching</li>
+                        <li><i class="fas fa-check"></i> Crowd-based targeting</li>
+                        <li><i class="fas fa-check"></i> Orange marker precision</li>
+                    </ul>
+                    <button class="tile-action" id="btn-show-ai-recommender-2">Explore <i
+                            class="fas fa-arrow-right"></i></button>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="feature-tile tile-revenue">
+                    <div class="tile-glow"></div>
+                    <div class="tile-icon"><i class="fas fa-chart-line"></i></div>
+                    <h3>Revenue Intelligence</h3>
+                    <p>Predict estimated monthly and daily revenue for any business type in any neighbourhood using real
+                        footfall data and custom scoring models.</p>
+                    <ul class="tile-features">
+                        <li><i class="fas fa-check"></i> Daily & monthly estimates</li>
+                        <li><i class="fas fa-check"></i> Potential score (0–100)</li>
+                        <li><i class="fas fa-check"></i> Business health grade</li>
+                    </ul>
+                    <button class="tile-action" id="btn-show-flashcards">View <i
+                            class="fas fa-arrow-right"></i></button>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="feature-tile tile-feasibility">
+                    <div class="tile-glow"></div>
+                    <div class="tile-icon"><i class="fas fa-clipboard-check"></i></div>
+                    <h3>Feasibility Engine</h3>
+                    <p>Validate your business idea against location-specific crowd intensity. Know before you invest
+                        whether your chosen area is viable for your business type.</p>
+                    <ul class="tile-features">
+                        <li><i class="fas fa-check"></i> Location viability score</li>
+                        <li><i class="fas fa-check"></i> Crowd compatibility check</li>
+                        <li><i class="fas fa-check"></i> Risk assessment</li>
+                    </ul>
+                    <button class="tile-action" id="btn-show-feasibility">Analyze <i
+                            class="fas fa-arrow-right"></i></button>
+                </div>
+
+                <!-- Feature 5 -->
+                <div class="feature-tile tile-places">
+                    <div class="tile-glow"></div>
+                    <div class="tile-icon"><i class="fas fa-map-pin"></i></div>
+                    <h3>Popular Places Radar</h3>
+                    <p>Discover thriving businesses within 5km with a visual radius scan. See crowd timing, best visit
+                        windows, and routing paths to each POI on the map.</p>
+                    <ul class="tile-features">
+                        <li><i class="fas fa-check"></i> 5km radar scan</li>
+                        <li><i class="fas fa-check"></i> Best time windows</li>
+                        <li><i class="fas fa-check"></i> Dijkstra routing</li>
+                    </ul>
+                    <button class="tile-action" id="btn-show-map-3">Scan <i class="fas fa-arrow-right"></i></button>
+                </div>
+
+                <!-- Feature 6 -->
+                <div class="feature-tile tile-startup">
+                    <div class="tile-glow"></div>
+                    <div class="tile-icon"><i class="fas fa-rocket"></i></div>
+                    <h3>Startup Form</h3>
+                    <p>Fill in your business details and instantly receive a map redirect showing your ideal locations
+                        as orange markers overlaid onto heatmap intensity zones.</p>
+                    <ul class="tile-features">
+                        <li><i class="fas fa-check"></i> Auto map redirect</li>
+                        <li><i class="fas fa-check"></i> Orange marker placement</li>
+                        <li><i class="fas fa-check"></i> Intensity zone overlay</li>
+                    </ul>
+                    <button class="tile-action" id="btn-show-startup-form-from-launchpad">Start <i
+                            class="fas fa-arrow-right"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dynamic Map Overlay (Full Size with Unified Top Control Bar) -->
+        <div id="dynamic-map-container" class="dynamic-map-container d-none">
+            <!-- Dedicated Top Control Bar Above Map -->
+            <div class="dynamic-map-top-bar">
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-back-dashboard" id="btn-back-to-dashboard" title="Back to Dashboard">
+                        <i class="fas fa-arrow-left me-1"></i> Dashboard
+                    </button>
+                    <h2 class="map-top-bar-title mb-0"><i class="fas fa-map-marked-alt text-primary me-2"></i>Live Crowd Heatmap</h2>
+                </div>
+
+                <!-- Integrated Search -->
+                <div class="search-overlay-compact map-top-bar-search">
+                    <div class="position-relative" style="flex:1;">
+                        <input type="text" id="dashboard-location-search" class="form-control" placeholder="Search areas..." autocomplete="off">
+                        <div id="dashboard-search-suggestions" class="search-suggestions-dropdown"></div>
+                    </div>
+                    <button class="btn btn-primary-blue" id="dashboard-search-btn">Search</button>
+                </div>
+
+                <!-- Action Controls: Find My Location & Popular Locations -->
+                <div class="map-border-controls d-flex gap-2">
+                    <button type="button" class="btn btn-map-control" id="dashboard-find-location-btn" title="Find My Location">
+                        <i class="fas fa-location-crosshairs"></i>
+                        <span>Find My Location</span>
+                    </button>
+                    <button type="button" class="btn btn-map-control" id="dashboard-popular-places-btn" title="Popular Locations">
+                        <i class="fas fa-bullseye"></i>
+                        <span>Popular Locations</span>
+                    </button>
+                </div>
+
+                <!-- Generate Report Action -->
+                <div class="ms-auto d-flex align-items-center">
+                    <button type="button" class="btn btn-generate-report" id="btn-generate-report" data-report-trigger title="Create a PDF report for the selected location">
+                        <i class="fas fa-file-pdf me-2"></i><span class="btn-label">Generate Detailed Report</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Viewport for Leaflet Map (Edge to Edge) -->
+            <div id="dashboard-map" class="dashboard-map-viewport"></div>
+
+            <div class="dynamic-map-footer">
+                <div class="legend-compact">
+                    <span class="badge intensity-low"><span class="dot"></span> Low</span>
+                    <span class="badge intensity-medium"><span class="dot"></span> Medium</span>
+                    <span class="badge intensity-high"><span class="dot"></span> High</span>
+                </div>
+                <!-- REVENUE PREDICTION DISPLAY -->
+                <div id="revenue-prediction-display" class="revenue-prediction-display d-none">
+                    <div class="revenue-item" title="OpenStreetMap places (shops, food, services, transit…) inside the 5 km analysis circle">
+                        <span class="revenue-label">Mapped Places (5 km)</span>
+                        <span id="crowd-score-value" class="revenue-value">--</span>
+                    </div>
+                    <div class="revenue-item" id="revenue-estimate-item">
+                        <span class="revenue-label">Est. Monthly Revenue*</span>
+                        <span id="revenue-value" class="revenue-value">₹--</span>
+                    </div>
+                </div>
+                <div id="map-status" class="map-status" role="status" aria-live="polite">Map Ready</div>
+            </div>
+        </div>
+
+        <!-- NEW: Analytics Section Below Map -->
+        <div id="dashboard-analytics-section" class="dashboard-analytics-section d-none mt-4">
+            <div class="row g-4">
+                <!-- Popular Places Column -->
+                <div class="col-12">
+                    <div id="popular-places-panel"
+                        class="dashboard-analytics-panel static-panel popular-matrix-panel d-none">
+                        <div class="panel-header d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center gap-2">
+                                <h3 class="mb-0"><i class="fas fa-list-ul me-2"></i> Popular Places</h3>
+                                <span class="badge bg-dark-subtle text-light border ms-2">4x4 Matrix</span>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-generate-report btn-sm" id="btn-popular-places-report" data-report-trigger title="Create a detailed PDF business report for this scanned location">
+                                    <i class="fas fa-file-pdf me-2"></i>Full Detailed Report
+                                </button>
+                                <button class="btn-close-panel" id="close-popular-places" title="Close"><i class="fas fa-times"></i></button>
+                            </div>
+                        </div>
+                        <div class="panel-content scrollable">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <p class="text-muted mb-0 small">
+                                    Top 16 businesses in a detailed 4x4 flashcard matrix.
+                                </p>
+                                <span class="badge bg-dark-subtle text-light border">4x4 Matrix</span>
+                            </div>
+                            <div id="popular-places-flashcards" class="flashcards-wrapper">
+                                <div class="text-center text-muted p-3">
+                                    <p class="mb-0">Click the popular places button to generate matrix flashcards.</p>
+                                </div>
+                            </div>
+                            <div id="popular-places-list" class="d-none"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Business Analytics Column -->
+                <div class="col-12">
+                    <div id="business-intelligence-panel"
+                        class="dashboard-analytics-panel intelligence-panel static-panel d-none">
+                        <!-- Hidden controls to preserve compatibility with existing JS hooks -->
+                        <div class="d-none">
+                            <button class="btn-close-panel" id="close-intelligence-panel" type="button"></button>
+                            <button class="nav-link active" id="dash-recs-tab" data-bs-toggle="pill"
+                                data-bs-target="#dash-recs" type="button" role="tab"></button>
+                        </div>
+                        <div class="panel-content scrollable p-0">
+                            <div class="tab-content" id="dashIntelContent">
+                                <div class="tab-pane fade show active" id="dash-recs" role="tabpanel">
+                                    <!-- Projected revenue 3D graph (static/js/revenue-3d.js) for the last map analysis -->
+                                    <section id="revenue-analytics-3d" aria-label="Projected revenue analytics"></section>
+                                    <!-- Synergy Revenue Intelligence (static/js/synergy.js): base vs synergy-adjusted projection -->
+                                    <section id="synergy-revenue-intel" aria-label="Synergy revenue intelligence"></section>
+                                    <div class="tab-pane fade" id="dash-ai" role="tabpanel">
+                                        <div id="business-suggestion-content">
+                                            <div class="text-center text-muted p-3">
+                                                <p>Select a location on the map.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Startup Form Section (Hidden by default) -->
+            <div id="dashboard-startup-form-section" class="dashboard-startup-form-section d-none mt-4">
+                <div class="dashboard-form-panel">
+                    <div class="panel-header">
+                        <div class="d-flex align-items-center">
+                            <button class="btn btn-back-dashboard" id="btn-back-to-launchpad-from-form">
+                                <i class="fas fa-arrow-left me-2"></i> Dashboard
+                            </button>
+                            <h2 class="ms-3 mb-0 h5"><i class="fas fa-clipboard-list me-2"></i>Business Information</h2>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <p class="text-muted mb-4">Fill in your details to check feasibility and find the ideal
+                            location.</p>
+
+                        <form id="dashboard-business-form">
+                            {% csrf_token %}
+                            <!-- Name & Email row -->
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label for="dashboard-id_name" class="form-label">Your Name</label>
+                                    <input type="text" id="dashboard-id_name" name="name" class="form-control"
+                                        placeholder="Full name" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="dashboard-id_email" class="form-label">Email</label>
+                                    <input type="email" id="dashboard-id_email" name="email" class="form-control"
+                                        placeholder="you@example.com" required>
+                                </div>
+                            </div>
+
+                            <!-- Phone -->
+                            <div class="mb-3">
+                                <label for="dashboard-id_phone" class="form-label"><i
+                                        class="fas fa-phone me-1 text-success"></i>Phone</label>
+                                <input type="text" id="dashboard-id_phone" name="phone" class="form-control"
+                                    placeholder="Phone number" required>
+                            </div>
+
+                            <!-- Business Location -->
+                            <div class="mb-3 position-relative">
+                                <label for="dashboard-form-location-search" class="form-label"><i
+                                        class="fas fa-map-marker-alt me-1 text-success"></i>Business Location</label>
+                                <input type="text" id="dashboard-form-location-search" name="location_name" class="form-control"
+                                    placeholder="Search area to load business types..." autocomplete="off">
+                                <div id="dashboard-form-location-suggestions" class="suggestions-list"></div>
+                            </div>
+
+                            <!-- Business Type DROPDOWN -->
+                            <div class="mb-3">
+                                <label for="dashboard-id_business_type_dropdown" class="form-label"><i
+                                        class="fas fa-store me-1 text-success"></i>Business Type to Start</label>
+                                <select id="dashboard-id_business_type_dropdown" name="business_type"
+                                    class="form-select" required>
+                                    <option value="">-- Search a location first --</option>
+                                </select>
+                                <small id="dashboard-form-flow-hint" class="form-text text-muted">
+                                    <i class="fas fa-info-circle me-1"></i>Select a location above to load recommended
+                                    business types.
+                                </small>
+                            </div>
+
+                            <!-- Desired Crowd Intensity -->
+                            <div class="mb-3">
+                                <label for="dashboard-id_crowd_intensity" class="form-label"><i
+                                        class="fas fa-users me-1 text-success"></i>Desired Crowd Intensity</label>
+                                <select id="dashboard-id_crowd_intensity" name="crowd_intensity" class="form-select"
+                                    required>
+                                    <option value="">-- Select intensity --</option>
+                                    <option value="low">Low — Quiet, few visitors</option>
+                                    <option value="medium">Moderate — Steady foot traffic</option>
+                                    <option value="high">High — Busy, high footfall</option>
+                                </select>
+                            </div>
+
+                            <!-- Hidden fields -->
+                            <input type="hidden" id="dashboard-id_latitude" name="latitude">
+                            <input type="hidden" id="dashboard-id_longitude" name="longitude">
+                            <input type="hidden" id="dashboard-id_recommended_business" name="recommended_business">
+
+                            <!-- Feasibility Result Banner -->
+                            <div id="dashboard-feasibility-result-banner" class="alert d-none mb-3" role="alert">
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div class="d-flex gap-2">
+                                <button type="submit" id="dashboard-submit-business-form-btn"
+                                    class="btn btn-success flex-fill">
+                                    <i class="fas fa-check-circle me-2"></i>Check Feasibility & Submit
+                                </button>
+                                <button type="button" id="dashboard-reset-business-form-btn"
+                                    class="btn btn-outline-secondary">
+                                    <i class="fas fa-redo me-1"></i>Reset
+                                </button>
+                            </div>
+                        </form>
+                        <div id="dashboard-form-message" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Business Recommendations Section (ids/handlers unchanged; styles: .recs-* in style.css) -->
+            <div class="business-recommendations-section d-none" id="business-recommendations-section">
+                <div class="recs-panel">
+                    <div class="recommendations-header">
+                        <div class="recs-heading">
+                            <span class="recs-icon" aria-hidden="true"><i class="fas fa-lightbulb"></i></span>
+                            <div class="recs-heading-text">
+                                <h3 class="recommendations-title">Top 5 Business Recommendations</h3>
+                                <div class="recommendations-subtitle" id="recommendations-subtitle">Location-specific commercial opportunities within 5 km trading zone</div>
+                            </div>
+                        </div>
+                        <span class="recs-chip"><i class="fas fa-bullseye"></i>5 km trading zone</span>
+                    </div>
+
+                    <div class="recs-toolbar">
+                        <div class="recs-field recs-field-location">
+                            <label for="dashboard-rec-location-select"><i class="fas fa-map-marker-alt"></i>Location</label>
+                            <!-- Filled by main.js: current searched location, recent searches, saved favorites -->
+                            <select id="dashboard-rec-location-select" class="form-select recs-select">
+                                <option value="">Search a location on the map first…</option>
+                            </select>
+                        </div>
+                        <div class="recs-field">
+                            <label for="dashboard-rec-category-select"><i class="fas fa-filter"></i>Category</label>
+                            <select id="dashboard-rec-category-select" class="form-select recs-select">
+                                <option value="">All categories</option>
+                            </select>
+                        </div>
+                        <button type="button" id="btn-dashboard-refresh-recs" class="recs-refresh" title="Refresh Recommendations" aria-label="Refresh recommendations">
+                            <i class="fas fa-sync-alt"></i><span>Refresh</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="business-flashcards-container recs-grid" id="dashboard-recommendations-cards-container">
+                    <div class="text-center text-muted p-5 col-12" id="dashboard-recs-placeholder">
+                        <div class="bi-loader-orb mx-auto mb-3" aria-hidden="true"><span></span><span></span><span></span></div>
+                        <p>Select an area or use the map to generate location-specific recommendations within 5 km.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hidden elements for main.js compatibility -->
+            <div class="d-none">
+                <div id="map"></div>
+                <input type="text" id="location-search">
+                <div id="location-suggestions"></div>
+                <button id="search-btn"></button>
+                <button id="find-location-btn"></button>
+                <div id="location-error-msg"></div>
+                <div id="accuracy-meter"></div>
+                <div id="accuracy-value"></div>
+                <input type="hidden" id="id_latitude">
+                <input type="hidden" id="id_longitude">
+                <select id="id_crowd_intensity" class="d-none"></select>
+                <input type="hidden" id="id_business_type">
+                <select id="id_business_type_select" class="d-none"></select>
+                <input type="hidden" id="id_recommended_business">
+                <div id="heatmap-toast" class="heatmap-toast"></div>
+                <div id="popular-places-close"></div>
+            </div>
+        </div>
+    </div>
+
+    {% endblock %}
+
+    {% block extra_js %}
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="{% static 'js/dashboard-form.js' %}?v=2.0"></script>
+    <script src="{% static 'js/revenue-3d.js' %}?v=1.3"></script>
+
+    {% endblock %}
